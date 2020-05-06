@@ -186,7 +186,8 @@ def countries_bar(indata, day, groupby=['Country'], inputs=None, count=30, fname
                 f_str = 'Total '
             else:
                 f_str = ''
-            title_string = f_str + k + add_str + ' for ' + day.strftime('%d/%m/%y') + ': ' + str(count) + ' countries from ' + str(indata.shape[0])
+            title_string = f_str + k + add_str + ' for ' + day.strftime('%d/%m/%y') + ': ' + str(count) \
+                                 + ' countries from ' + str(indata.shape[0])
             fig = px.bar(cur_data, x=groupby[0], y=k, color=groupby[0], text=k, template='ggplot2', log_y=True,
                          title=title_string)  # , hover_name=groupby[0])
             fig.layout.template = 'plotly_dark'
@@ -368,33 +369,32 @@ def scatter_country_plot(full_data, inputs=['Confirmed', 'Recovered', 'Deaths', 
             fig.update_traces(hovertemplate='%{y}<br>%{customdata| %_d %b %Y}')
 
         if add_growth_rates:
+            len_rate = full_data[k].shape[0]
             grows_rate = full_data['Growth' + base].fillna(0).values / 100.0
             grows_rate[np.isinf(grows_rate)] = 0
-            len_rate = len(grows_rate)
             vec = np.arange(0, round(len_rate*1/3))
             one_third = grows_rate[vec].mean()
             if one_third > 0:
                 grow_one_third = one_third * full_data[base] + full_data[k][vec[0]] * factor
-
                 add_trace1 = go.Scatter(x=full_data[base], y=grow_one_third, mode="lines",
                                         name='Linear estimation: ' + str(full_data[k][vec[0]]) + ' + '
-                                             + str(round(one_third, 2)) + '*' + base + '<br>' + str(round(one_third, 2))
+                                             + str(round(one_third, 3)) + '*' + base + '<br>' + str(round(one_third, 3))
                                         + ' - estim on first onethird of ' + base,
                                         line=dict(dash="dash", width=3))
                 fig.add_trace(add_trace1, row=1, col=1)
                 fig.add_trace(add_trace1, row=1, col=2)
-            grows_rate = full_data['Growth' + base].fillna(0).values / 100.0
-            grows_rate[np.isinf(grows_rate)] = 0
-            len_rate = len(grows_rate)
-            vec = np.arange(round(0.95*len_rate), len_rate)
-            one_third = grows_rate[vec].min()
-            if one_third > 0:
-                grow_one_third = one_third * full_data[base] + full_data[k][vec[0]-round(0.1*len_rate)] * factor
+
+            # estimation for last week
+            vec = np.arange(np.max([1, len_rate-7]), len_rate)
+            last_week = (full_data[k][vec[-1]] - full_data[k][vec[0]]) / (full_data[base][vec[-1]] - full_data[base][vec[0]])
+            bias = int(full_data[k][vec[-1]] - full_data[base][vec[-1]] * last_week)
+            if last_week > 0:
+                grow_one_third = last_week * full_data[base] + bias * factor
                 add_trace2 = go.Scatter(x=full_data[base][round(len_rate*1/3):], y=grow_one_third[round(len_rate*1/3):],
-                                      mode="lines", name='Linear estimation: '
-                                                         + str(full_data[k][vec[0]-round(0.1*len_rate)]) + ' + '
-                                                         + str(round(one_third, 2)) + '*' + base + '<br>'
-                                                         + str(round(one_third, 2)) + ' - estim on 0.05 last from ' + base,
+                                        mode="lines", name='Linear estimation: ' + str(bias) + ' + '
+                                                           + str(round(last_week, 3)) + '*' + base + '<br>'
+                                                           + str(round(last_week, 3)) + ' - estim on last week from '
+                                                           + base,
                                         line=dict(dash="dash", width=3))
                 fig.add_trace(add_trace2, row=1, col=1)
                 fig.add_trace(add_trace2, row=1, col=2)
