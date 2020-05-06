@@ -133,9 +133,11 @@ if create_bars:
 
 # Israel
 base_country = 'Israel'
-dates = pd.to_datetime(['2020/03/10', '2020/03/15', '2020/03/18', '2020/04/26'], format='%Y/%m/%d')
+dates = pd.to_datetime(['2020/03/10', '2020/03/15', '2020/03/18', '2020/04/26', '2020/04/28', '2020/04/29',
+                        '2020/05/03', '2020/05/07'], format='%Y/%m/%d')
 dates = dates.append(pd.date_range('2020/04/08', '2020/04/15'))
-event = ['Purim', 'Closed School', 'Lockdown begins', 'Lockdown ends'] + ['Pesah' for i in range(8)]
+event = ['Purim', 'SchoolClosed', 'LockdownBegins', 'LockdownEnds', 'MemorialDay', 'Independence', 'SchoolOpen',
+         'MarketOpen'] + ['Pesah' for i in range(8)]
 Events = pd.DataFrame({'Date': dates, 'Event': event})
 
 israel_db = country_analysis(clean_db, world_population, country=base_country, state='', plt=first_plt, fromFirstConfirm=True, events=Events)
