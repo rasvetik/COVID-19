@@ -384,8 +384,8 @@ def scatter_country_plot(full_data, inputs=['Confirmed', 'Recovered', 'Deaths', 
                 fig.add_trace(add_trace1, row=1, col=1)
                 fig.add_trace(add_trace1, row=1, col=2)
 
-            # estimation for last week
-            vec = np.arange(np.max([1, len_rate-7]), len_rate)
+            # estimation for two last weeks
+            vec = np.arange(np.max([1, len_rate-14]), len_rate)
             last_week = (full_data[k][vec[-1]] - full_data[k][vec[0]]) / (full_data[base][vec[-1]] - full_data[base][vec[0]])
             bias = int(full_data[k][vec[-1]] - full_data[base][vec[-1]] * last_week)
             if last_week > 0:
@@ -393,7 +393,7 @@ def scatter_country_plot(full_data, inputs=['Confirmed', 'Recovered', 'Deaths', 
                 add_trace2 = go.Scatter(x=full_data[base][round(len_rate*1/3):], y=grow_one_third[round(len_rate*1/3):],
                                         mode="lines", name='Linear estimation: ' + str(bias) + ' + '
                                                            + str(round(last_week, 3)) + '*' + base + '<br>'
-                                                           + str(round(last_week, 3)) + ' - estim on last week from '
+                                                           + str(round(last_week, 3)) + ' - estim on 2 last weeks from '
                                                            + base,
                                         line=dict(dash="dash", width=3))
                 fig.add_trace(add_trace2, row=1, col=1)
