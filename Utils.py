@@ -387,8 +387,8 @@ def scatter_country_plot(full_data, inputs=['Confirmed', 'Recovered', 'Deaths', 
             # estimation for two last weeks
             vec = np.arange(np.max([1, len_rate-14]), len_rate)
             last_week = (full_data[k][vec[-1]] - full_data[k][vec[0]]) / (full_data[base][vec[-1]] - full_data[base][vec[0]])
-            bias = int(full_data[k][vec[-1]] - full_data[base][vec[-1]] * last_week)
-            if last_week > 0:
+            if not np.isinf(last_week) and last_week > 0:
+                bias = int(full_data[k][vec[-1]] - full_data[base][vec[-1]] * last_week)
                 grow_one_third = last_week * full_data[base] + bias * factor
                 add_trace2 = go.Scatter(x=full_data[base][round(len_rate*1/3):], y=grow_one_third[round(len_rate*1/3):],
                                         mode="lines", name='Linear estimation: ' + str(bias) + ' + '
