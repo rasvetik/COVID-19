@@ -20,6 +20,7 @@ from plotly.subplots import make_subplots
 import folium
 import plotly
 import os
+import time
 
 
 plt.style.use('dark_background')
@@ -34,7 +35,7 @@ def bar_country_plot(full_data, groupby='Date', inputs=['Confirmed', 'Active', '
         day = full_data.Date.max().strftime('%d%m%y')
 
     title_string = full_data.State + ' Cases' + ' for' + day
-    with open(os.path.join(os.getcwd(), day + '_' + full_data.State + '_' + fname + '.html'), 'a') as ff:
+    with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day + '_' + full_data.State + '_' + fname + '.html'), 'a') as ff:
         fig = px.bar(full_data, x=groupby, y=inputs, color=inputs, template='ggplot2', log_y=True,
                      title=title_string, hover_name=inputs)
         fig.layout.template = 'plotly_dark'
@@ -159,7 +160,7 @@ def create_table(indata, day, inputs=['Confirmed', 'Deaths', 'Recovered', 'Activ
     for cnt in range(len(inputs)):
         body.append(indata[inputs[cnt]].values)
 
-    with open(os.path.join(os.getcwd(), day.strftime('%d%m%y') + fname + '.html'), 'a') as f:
+    with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + fname + '.html'), 'a') as f:
         fig = go.Figure(data=[go.Table(header=dict(values=head, height=35, align=['left', 'center']),
                                        cells=dict(values=body, height=28, align='left'))])
         fig.layout.template = 'plotly_dark'
@@ -173,7 +174,7 @@ def create_table(indata, day, inputs=['Confirmed', 'Deaths', 'Recovered', 'Activ
 def countries_bar(indata, day, groupby=['Country'], inputs=None, count=30, fname='_World_Daily_Situation'):
     if inputs is None:
         inputs = indata.keys()[1:].values
-    with open(os.path.join(os.getcwd(), day.strftime('%d%m%y') + fname + '.html'), 'a') as f:
+    with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + fname + '.html'), 'a') as f:
         for cnt in range(len(inputs)-1, -1, -1):
             k = inputs[cnt]
             cur_data = indata.sort_values(k, ascending=0).reset_index()
@@ -233,7 +234,7 @@ def create_map(data, world_pop, location=[31, 35]):
     # in IPython Notebook, Jupyter
     worldmap
     day = data.Date.max().strftime('%d%m%y')
-    worldmap.save(os.path.join(os.getcwd(), day + '_WorldMap.html'))
+    worldmap.save(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day + '_WorldMap.html'))
 ###################################################################################################
 
 
@@ -248,7 +249,7 @@ def case_groupby_bar(full_data, world_population, groupby=['Date', 'State', 'Cou
 
     for cnt in range(len(inputs)):
         k = inputs[cnt]
-        with open(os.path.join(os.getcwd(), full_data.Date.max().strftime('%d%m%y') + '_' + k + fname + '.html'), 'a') as f:
+        with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), full_data.Date.max().strftime('%d%m%y') + '_' + k + fname + '.html'), 'a') as f:
             relevant, world_pop = group_extract_data(daily, world_population, groupby, k, threshould[cnt])
             array_relevant.append(relevant)
             srelevant = relevant.sort_values([groupby[0], groupby[1], k], ascending=[1, 1, 0])
@@ -523,7 +524,7 @@ def country_analysis(clean_db, world_pop, country='China', state='Hubei', plt=Fa
                       + '<br>Twice the number of cases given the current growth rate in   '
                       + str(prediction_cnfm) + '   ' + str(prediction_dth) + '   ' + str(prediction_rcv) + '  days')
     if plt:
-        with open(os.path.join(os.getcwd(), day + '_' + country + '_Various_Cases .html'), 'a') as f:
+        with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day + '_' + country + '_Various_Cases .html'), 'a') as f:
             fsc1 = scatter_country_plot(data, add_events_text=add_event)
             fsc2 = scatter_country_plot(data, prefix='New', fname='Daily New Cases', add_events_text=add_event)
             fsc3 = scatter_country_plot(data, prefix='NormPop', fname='Total Cases Normalised for 1M Population', add_events_text=add_event)

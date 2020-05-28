@@ -15,14 +15,15 @@ from Utils import *
 
 
 # Begin
-full_data_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y") + 'complete_data.csv')
-world_pop_file = os.path.join(os.getcwd(), 'world_population_csv.csv')
+full_data_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y"), time.strftime("%d%m%Y") + 'complete_data.csv')
+world_pop_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y"), 'world_population_csv.csv')
 
 if os.path.exists(full_data_file):
     clean_db = pd.read_csv(full_data_file)
     world_population = pd.read_csv(world_pop_file)
     first_plt = False
 else:
+    os.makedirs(os.path.join(os.getcwd(), time.strftime("%d%m%Y")), exist_ok=True)
     # Extract Data from World Health Organisation (WHO)
     clean_db, world_population = extract_who_data.extract_data()
     first_plt = True
@@ -55,7 +56,7 @@ if first_plt:
                                                      'Probability to Case If infected by the virus (%)')
     fdbd5 = scatter_country_plot(dbd, inputs=['Deaths'], base='Recovered', add_growth_rates=True,
                                  fname=' Cases Ratio: Deaths vs Recovered')
-    with open(os.path.join(os.getcwd(), current_date.strftime('%d%m%y') + '_World_Various_Cases .html'), 'a') as f:
+    with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), current_date.strftime('%d%m%y') + '_World_Various_Cases .html'), 'a') as f:
         f.write(fdbd1.to_html(full_html=False, include_plotlyjs='cdn'))
         f.write(fdbd2.to_html(full_html=False, include_plotlyjs='cdn'))
         f.write(fdbd3.to_html(full_html=False, include_plotlyjs='cdn'))
@@ -93,7 +94,7 @@ for k in inputs:
 current_date_countries, pop_latest = add_pop_age_data(current_date_countries, world_population)
 dbd.loc[:, 'Population'] = pop_latest.Population.sum()
 dbd.loc[:, 'Age'] = pop_latest.Age.median()
-dbd.to_csv(os.path.join(os.getcwd(), 'world_db.csv'), index=False)
+dbd.to_csv(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), 'world_db.csv'), index=False)
 
 for k in inputs:
     current_date_countries[k + ' / 1M pop'] = (current_date_countries[k] * 1e6 /
@@ -127,17 +128,17 @@ create_bars = first_plt
 if create_bars:
     case_groupby_bar(daily, world_population, groupby=['Date', 'State', 'Country'],
                      inputs=['Confirmed', 'Recovered', 'Deaths', 'Active'],
-                     threshould=[15000, 5000, 200, 10000])
+                     threshould=[15000, 10000, 250, 10000])
 #############################################################################
 
 
 # Israel
 base_country = 'Israel'
 dates = pd.to_datetime(['2020/03/10', '2020/03/15', '2020/03/18', '2020/04/26', '2020/04/28', '2020/04/29',
-                        '2020/05/03', '2020/05/07'], format='%Y/%m/%d')
+                        '2020/05/03', '2020/05/07', '2020/05/27', '2020/05/28'], format='%Y/%m/%d')
 dates = dates.append(pd.date_range('2020/04/08', '2020/04/15'))
 event = ['Purim', 'SchoolClosed', 'LockdownBegins', 'LockdownEnds', 'MemorialDay', 'Independence', 'SchoolOpen',
-         'MarketOpen'] + ['Pesah' for i in range(8)]
+         'MarketOpen', 'PubsOpen', 'Shavuot'] + ['Pesah' for i in range(8)]
 Events = pd.DataFrame({'Date': dates, 'Event': event})
 
 israel_db = country_analysis(clean_db, world_population, country=base_country, state='', plt=first_plt, fromFirstConfirm=True, events=Events)
@@ -157,10 +158,10 @@ pop_countries = pop[pop.Population < 1.1 * israel_db.Population.max()]['Country'
 cnf = current_date_countries[current_date_countries['Confirmed / 1M pop'] > 0.85 * israel_db['NormPopConfirmed'].max()]
 cnf_countries = cnf[cnf['Confirmed / 1M pop'] < 1.15 * israel_db['NormPopConfirmed'].max()]['Country'].unique()
 
-countries1 = ['Italy', 'Iran', 'Spain', 'France', 'US', 'United Kingdom', 'Netherlands', 'Belgium',  'Sweden',
-              'Portugal', 'Norway', 'Qatar', 'Sweden']  # , 'Iceland', 'Ireland']
-countries2 = ['Taiwan*', 'New Zealand', 'Panama', 'Estonia', 'Cyprus', 'Japan', 'South Korea',
-              'Singapore', 'Switzerland', 'Turkey', 'Denmark', 'Germany', 'Austria', 'Russia']
+countries1 = ['Italy', 'Iran', 'Spain', 'France', 'US', 'United Kingdom', 'Russia', 'Brazil']
+             # 'Netherlands', 'Belgium', 'Portugal', 'Norway', 'Iceland', 'Ireland']
+countries2 = ['Taiwan*', 'New Zealand', 'Japan', 'South Korea', 'Singapore', 'Switzerland', 'Turkey']
+             # 'Sweden', 'Denmark', 'Germany', 'Austria']
 
 ddb = None
 cnfdb = None
@@ -197,7 +198,7 @@ create_plt = first_plt
 # Countries Cases Plot
 if create_plt:
     # Days
-    threshDays = [7, 7]
+    threshDays = [1, 1]
     # Value ( Default)
     threshValues = [1, 1]
     for cnt in range(2):
@@ -209,7 +210,7 @@ if create_plt:
             inputs = ['Active', 'Recovered']
         prefixes = ['NormPop', 'New', 'NormConfirm']
         factors = [1, 1, 1]
-        add_growth_rate= [True, False, False]
+        add_growth_rate = [False, False, False]
         logs = [False, False, False]
         for cprx in range(len(prefixes)):
             cases = inputs
@@ -221,7 +222,7 @@ if create_plt:
                 threshValues = [0, 0]
                 if inputs_kind:
                     cases = ['Active', 'Deaths']
-            with open(os.path.join(os.getcwd(), current_date.strftime('%d%m%y') + '_Days_since_the_' + str(threshDays[0])
+            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), current_date.strftime('%d%m%y') + '_Days_since_the_' + str(threshDays[0])
                                                 + 'th_from_' + str(threshValues[0]) + 'th_' + prefix + '_for_'
                                                 + inputs[1] + '_Cases_For_Various_Countries.html'), 'a') as f:
                 fsc1 = case_thresh_plot(cdb1, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor,
@@ -260,7 +261,7 @@ if choisen_cases:
     # Value ( Default)
     threshValues = [1, 1]
     # Countries Cases Plot
-    with open(os.path.join(os.getcwd(), current_date.strftime('%d%m%y') + '_Days_since_the_' + str(threshDays[0])
+    with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), current_date.strftime('%d%m%y') + '_Days_since_the_' + str(threshDays[0])
                                       + 'th_from_' + str(threshValues[0]) + 'th_' + '_for_'
                                       + 'All_Cases_For_' + str(len(countries)) + '_Countries.html'), 'a') as f:
 

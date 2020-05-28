@@ -59,7 +59,7 @@ def extract_data(filename=None, world_pop_file=(os.path.join(os.getcwd(), 'world
         filename = []
         for url in urls:
             cur_file = wget.download(url)
-            new_name = os.path.join(os.getcwd(), time.strftime("%d%m%Y")+cur_file)
+            new_name = os.path.join(os.getcwd(), time.strftime("%d%m%Y"), time.strftime("%d%m%Y")+cur_file)
             if os.path.exists(new_name):
                 os.remove(new_name)
             os.rename(cur_file, new_name)
@@ -123,7 +123,7 @@ def extract_data(filename=None, world_pop_file=(os.path.join(os.getcwd(), 'world
         world_population_tab = world_population_tab.rename(
             columns={"Country (or dependency)": "Country", "Population 2020": "Population", "Med. Age": "Age"})
         world_population_tab.loc[world_population_tab['Age'].str.contains('N.A.') == True, 'Age'] = np.nan
-        world_population_tab.to_csv(os.path.join(os.getcwd(), 'world_population_csv.csv'), index=False)
+        world_population_tab.to_csv(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), 'world_population_csv.csv'), index=False)
 
     confirm = pd.concat([db[0], db_can[0]], ignore_index=True)
     deaths = pd.concat([db[1], db_can[1]], ignore_index=True)
@@ -152,7 +152,8 @@ def extract_data(filename=None, world_pop_file=(os.path.join(os.getcwd(), 'world
     full_table['Active'] = (full_table['Confirmed'] - full_table['Recovered'] - full_table['Deaths']).clip(0).astype(int)
 
     # Saving full data
-    full_table.to_csv(os.path.join(os.getcwd(), time.strftime("%d%m%Y") + 'complete_data.csv'), index=False)
-    full_table.to_csv(os.path.join(os.getcwd(), 'complete_data.csv'), index=False)
+    full_table.to_csv(os.path.join(os.getcwd(),  time.strftime("%d%m%Y"),
+                                   time.strftime("%d%m%Y") + 'complete_data.csv'), index=False)
+    full_table.to_csv(os.path.join(os.getcwd(),  time.strftime("%d%m%Y"), 'complete_data.csv'), index=False)
 
     return full_table, world_population_tab
