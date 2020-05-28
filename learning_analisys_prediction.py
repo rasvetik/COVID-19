@@ -32,6 +32,7 @@ from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator
 from sklearn.neural_network import MLPRegressor
 import time
 import os
+import logging
 from scipy.integrate import solve_ivp
 from scipy.optimize import minimize
 from Utils import *
@@ -56,7 +57,7 @@ def extended_data(db, inputs, dates, prefix='Real'):
     return df
 
 
-def SIR_algo(data, predict_range=150, s_0=None, threshConfrirm=1, threshDays=None):
+def SIR_algo(data, predict_range=150, s_0=None, threshConfrirm=1, threshDays=None, debug_mode=None):
     # interactive site http://www.public.asu.edu/~hnesse/classes/sir.html
     # beta -  parameter controlling how much the disease can be transmitted through exposure.
     # gamma - parameter expressing how much the disease can be recovered in a specific period
@@ -116,8 +117,10 @@ def SIR_algo(data, predict_range=150, s_0=None, threshConfrirm=1, threshDays=Non
     factor = 1.0
     # Factor to boost the calculation if the values are big (over 1M)
     if data_db.Confirmed.values[-1] > 1e6:
-        factor = 100.0
+        factor = 1000.0
     elif data_db.Confirmed.values[-1] > 1e5:
+        factor = 100.0
+    elif data_db.Confirmed.values[-1] > 1e4:
         factor = 10.0
     print('Boost factor %d' % factor)
 
@@ -144,20 +147,20 @@ def SIR_algo(data, predict_range=150, s_0=None, threshConfrirm=1, threshDays=Non
     try:
         optimal = minimize(loss, [0.001, 0.001, 0.001], args=(active, recovered, death, s_0, i_0, r_0, d_0, alpha),
                            method='L-BFGS-B', bounds=[(0.00000001, 0.8), (0.00000001, 0.8), (0.00000001, 0.6)],
-                           options={'maxls': 40, 'disp': 0})
+                           options={'maxls': 40, 'disp': debug_mode})
         print(optimal)
     except Exception as exc:
         print(exc)
         try:
             optimal = minimize(loss, [0.001, 0.001, 0.001], args=(active, recovered, death, s_0, i_0, r_0, d_0, alpha),
                                method='L-BFGS-B', bounds=[(0.00000001, 1), (0.00000001, 1), (0.00000001, 0.6)],
-                               options={'eps': 1e-7, 'maxls': 40, 'disp': 0})
+                               options={'eps': 1e-7, 'maxls': 40, 'disp': debug_mode})
             print(optimal)
         except Exception as exc:
             print(exc)
             optimal = minimize(loss, [0.01, 0.01, 0.01], args=(active, recovered, death, s_0, i_0, r_0, d_0, alpha),
                                method='L-BFGS-B', bounds=[(0.00000001, 1), (0.00000001, 1), (0.00000001, 0.6)],
-                               options={'eps': 1e-5, 'maxls': 40, 'disp': 0})
+                               options={'eps': 1e-5, 'maxls': 40, 'disp': debug_mode})
             print(optimal)
 
     beta, gamma, delta = optimal.x
@@ -183,19 +186,19 @@ def SIR_algo(data, predict_range=150, s_0=None, threshConfrirm=1, threshDays=Non
     print('country=%s, beta=%.8f, gamma=%.8f, delta=%.8f, r_0=%.8f, days_to_recovery=%.1f'
           % (country, beta, gamma, delta, (beta / gamma), (1 / gamma)))
 
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.set_title(country)
+    fig, ax = plt.subplots(figsize=(14, 9))
+    ax.set_title(out_text)
     df.plot(ax=ax)
 
     save_string = cur_day + '_SIR_Prediction_' + country + '.png'
-    fig.savefig(os.path.join(os.getcwd(), save_string))
+    fig.savefig(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), save_string))
 
     return df, out_text, Dsir
 ##################################################################################################
 
 
 def prophet_modeling_and_predicting(base_db, column_name, predict_range=365, first_n=45, last_n=30, threshConfrirm=1,
-                                    threshDays=None, logistic=False):
+                                    threshDays=None, logistic=False, debug_mode=None):
     # Prophet Algorithm
     # Implements a procedure for forecasting time series data based on an additive model where non-linear trends are fit
     # with yearly, weekly, and daily seasonality, plus holiday effects. It works best with time series that have strong
@@ -211,7 +214,9 @@ def prophet_modeling_and_predicting(base_db, column_name, predict_range=365, fir
         pr_data['cap'] = 2*pr_data.y.max()
     else:
         growth = 'linear'
-
+    # Turn off fbprophet stdout logger
+    logging.getLogger('Prophet').setLevel(logging.ERROR)
+    # pr_data.y = pr_data.y.astype('float')
     # Modeling
     m = Prophet(growth=growth, yearly_seasonality=False, weekly_seasonality=True, daily_seasonality=True)
     m.fit(pr_data)
@@ -242,7 +247,8 @@ def prophet_modeling_and_predicting(base_db, column_name, predict_range=365, fir
 ##################################################################################################
 
 
-def arima_modeling_and_predicting(base_db, column_name, predict_range=150, threshConfrirm=1, threshDays=None):
+def arima_modeling_and_predicting(base_db, column_name, predict_range=150, threshConfrirm=1, threshDays=None,
+                                  debug_mode=None):
     # https://machinelearningmastery.com/arima-for-time-series-forecasting-with-python/
     # Arima Algo - Autoregressive Integrated Moving Average Model
     # p -  auto-regressive aspect. this parameter says
@@ -263,17 +269,23 @@ def arima_modeling_and_predicting(base_db, column_name, predict_range=150, thres
     size = len(dates)
     len_data = len(arima_data['Count'].values)
     period = size - len_data
-    plt.figure()
-    # Running the autocorrelation_plot, we can see where is a positive correlation (with the first PP lags)
-    # and where that is perhaps significant for the first p lags (above the confidence line).
-    autocorrelation_plot(arima_data['Count'])
 
-    stepwise_fit = auto_arima(arima_data['Count'], d=2, D=2, trace=True,
+    if debug_mode is not None:
+        plt.figure()
+        # Running the autocorrelation_plot, we can see where is a positive correlation (with the first PP lags)
+        # and where that is perhaps significant for the first p lags (above the confidence line).
+        autocorrelation_plot(arima_data['Count'])
+        do_print = True
+    else:
+        do_print = False
+
+    stepwise_fit = auto_arima(arima_data['Count'], d=2, D=2, trace=do_print,  # trace print log
                               error_action='ignore',  # we don't want to know if an order does not work
                               suppress_warnings=True,  # we don't want convergence warnings
                               stepwise=True)  # set to stepwise
-    # To print the summary
-    print(stepwise_fit.summary())
+    if do_print:
+        # To print the summary
+        print(stepwise_fit.summary())
 
     # Model and prediction
     # if stepwise_fit.order[0] == 0 or stepwise_fit.order[2] == 0:
@@ -281,19 +293,21 @@ def arima_modeling_and_predicting(base_db, column_name, predict_range=150, thres
     # else:
     #     model = ARIMA(arima_data['Count'].values, order=stepwise_fit.order)
 
-    fit_model = model.fit(trend='c', full_output=True, disp=True)
-    print(fit_model.summary())
+    fit_model = model.fit(trend='c', full_output=True, disp=False)
 
-    fig, ax = plt.subplots(2, 2)
-    # Graphical Representation for Prediction
-    fit_model.plot_predict(ax=ax[0, 0])
-    ax[0, 0].set_title('Forecast vs Actual for ' + column_name)
-    # Plot residual errors
-    residuals = pd.DataFrame(fit_model.resid)
-    # if in the residual errors may still be some trend information not captured by the model.
-    residuals.plot(title="Residual Error'", ax=ax[1, 0])
-    # the density plot of the residual error values, suggesting the errors are Gaussian, but may not be centered on zero
-    residuals.plot(kind='kde', title='Density', ax=ax[1, 1])
+    if do_print:
+        print(fit_model.summary())
+        fig, ax = plt.subplots(2, 2)
+        # Graphical Representation for Prediction
+        fit_model.plot_predict(ax=ax[0, 0])
+        ax[0, 0].set_title('Forecast vs Actual for ' + column_name)
+        # Plot residual errors
+        residuals = pd.DataFrame(fit_model.resid)
+        # if in the residual errors may still be some trend information not captured by the model.
+        residuals.plot(title="Residual Error'", ax=ax[1, 0])
+        # the density plot of the residual error values, suggesting the errors are Gaussian, but may not be centered on zero
+        residuals.plot(kind='kde', title='Density', ax=ax[1, 1])
+
     # Forcast for next days (performs a one-step forecast using the model)
     forcast = fit_model.forecast(steps=period)
     pred_y = forcast[0].tolist()
@@ -311,7 +325,8 @@ def arima_modeling_and_predicting(base_db, column_name, predict_range=150, thres
     # Calculate mean squared error
     mse = mean_squared_error(arima_data['Count'], yhat)
     print('rmse=%d, mse=%d' % (root_mse, mse))
-    pd.DataFrame(pred_y).plot(title='Prediction, rmse=' + str(int(root_mse)), ax=ax[0, 1])
+    if do_print:
+        pd.DataFrame(pred_y).plot(title='Prediction, rmse=' + str(int(root_mse)), ax=ax[0, 1])
 
     test = pd.concat([pd.DataFrame(yhat, columns=[column_name]), pd.DataFrame(predictions, columns=[column_name])],
                      ignore_index=True)
@@ -321,7 +336,8 @@ def arima_modeling_and_predicting(base_db, column_name, predict_range=150, thres
 ###########################################################################################################
 
 
-def LSTM_modeling_and_predicting(base_db, column_name, predict_range=150, threshConfrirm=1,  threshDays=None):
+def LSTM_modeling_and_predicting(base_db, column_name, predict_range=150, threshConfrirm=1,  threshDays=None,
+                                 debug_mode=None):
 
     dataset = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
     if threshDays:
@@ -346,14 +362,19 @@ def LSTM_modeling_and_predicting(base_db, column_name, predict_range=150, thresh
 
     # prepare TimeSeriesGenerator
     generator = TimeseriesGenerator(scaled_train_data, scaled_train_data, length=n_input, batch_size=batch_size)
-    # number of samples
-    print('Samples: %d' % len(generator))
-    # print each sample
-    do_print = False
-    if do_print:
-        for i in range(len(generator)):
-            x, y = generator[i]
-            print('%s => %s' % (x, y))
+
+    if debug_mode is not None:
+        # number of samples
+        print('Samples: %d' % len(generator))
+        do_print = True
+        # print each sample
+        see_generator = False
+        if see_generator:
+            for i in range(len(generator)):
+                x, y = generator[i]
+                print('%s => %s' % (x, y))
+    else:
+        do_print = False
 
     lstm_model = Sequential()
     lstm_model.add(LSTM(units=48, return_sequences=True, input_shape=(n_input, n_features)))
@@ -365,14 +386,16 @@ def LSTM_modeling_and_predicting(base_db, column_name, predict_range=150, thresh
     lstm_model.add(Dense(units=1))
     lstm_model.compile(optimizer='adam', loss='mean_squared_error')
 
-    lstm_model.fit(generator, epochs=50)
+    lstm_model.fit(generator, epochs=50, verbose=do_print)
 
     losses_lstm = lstm_model.history.history['loss']
-    plt.figure(figsize=(12, 4))
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.xticks(np.arange(0, 100, 1))
-    plt.plot(range(len(losses_lstm)), losses_lstm)
+
+    if do_print:
+        plt.figure(figsize=(12, 4))
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.xticks(np.arange(0, 100, 1))
+        plt.plot(range(len(losses_lstm)), losses_lstm)
 
     lstm_predictions_scaled = []
     batch = scaled_train_data[:n_input]
@@ -385,10 +408,12 @@ def LSTM_modeling_and_predicting(base_db, column_name, predict_range=150, thresh
 
     prediction = pd.DataFrame(scaler.inverse_transform(lstm_predictions_scaled), columns=[column_name])
     prediction = pd.concat([pd.DataFrame(y[:n_input], columns=[column_name]), prediction], ignore_index=True)
-    prediction.plot(title='Prediction')
-    data[column_name].plot(title=column_name)
-    plt.title('Prediction of ' + column_name)
-    plt.legend(['predicted ' + column_name, 'real ' + column_name])
+
+    if do_print:
+        prediction.plot(title='Prediction')
+        data[column_name].plot(title=column_name)
+        plt.title('Prediction of ' + column_name)
+        plt.legend(['predicted ' + column_name, 'real ' + column_name])
 
     dates = extend_index(data.Date, predict_range)
     prediction.index = np.datetime_as_string(dates, unit='D')
@@ -397,7 +422,8 @@ def LSTM_modeling_and_predicting(base_db, column_name, predict_range=150, thresh
 ######################################################################################################
 
 
-def regression_modeling_and_predicting(base_db, column_name, predict_range=150, threshConfrirm=1, threshDays=None):
+def regression_modeling_and_predicting(base_db, column_name, predict_range=150, threshConfrirm=1, threshDays=None,
+                                       debug_mode=None):
     # Class MLPRegressor implements a multi-layer perceptron (MLP)
     # that trains using backpropagation with no activation function in the output layer,
     # which can also be seen as using the identity function as activation function.
@@ -412,7 +438,7 @@ def regression_modeling_and_predicting(base_db, column_name, predict_range=150, 
     x = np.arange(len_data).reshape(-1, 1)
     y = data[column_name].values
 
-    model = MLPRegressor(hidden_layer_sizes=[64, 16], max_iter=100000, alpha=0.0001, random_state=11, verbose=True)
+    model = MLPRegressor(hidden_layer_sizes=[64, 16], max_iter=100000, alpha=0.0001, random_state=11, verbose=False)
 
     # Regression Model
     do_scaling = False
@@ -429,8 +455,12 @@ def regression_modeling_and_predicting(base_db, column_name, predict_range=150, 
     # Return the coefficient of determination R^2 of the prediction.
     # The best possible score is 1.0 and it can be negative (because the model can be arbitrarily worse).
     score = model.score(x, y)
-    print(score)
-    print(model.loss_)
+    if debug_mode is not None:
+        print(score)
+        print(model.loss_)
+        do_plt = True
+    else:
+        do_plt = False
 
     test = np.arange(predict_range).reshape(-1, 1)
     if do_scaling:
@@ -445,11 +475,12 @@ def regression_modeling_and_predicting(base_db, column_name, predict_range=150, 
     predicted_count = pd.DataFrame(prediction, columns=[column_name])
 
     # Graphical representation of current confirmed and predicted confirmed
-    accumulated_count = data[column_name]
-    predicted_count.plot()
-    accumulated_count.plot()
-    plt.title('Prediction of Accumulated' + column_name + ' Count. Score=' + str(round(score, 2)))
-    plt.legend(['predicted ' + column_name, 'real ' + column_name])
+    if do_plt:
+        accumulated_count = data[column_name]
+        predicted_count.plot()
+        accumulated_count.plot()
+        plt.title('Prediction of Accumulated' + column_name + ' Count. Score=' + str(round(score, 2)))
+        plt.legend(['predicted ' + column_name, 'real ' + column_name])
 
     predicted_count.index = np.datetime_as_string(dt_idx, unit='D')
 
@@ -458,361 +489,432 @@ def regression_modeling_and_predicting(base_db, column_name, predict_range=150, 
 
 
 # If figures are not load in your default browser set Chrome as default
-print(plotly.io.renderers.default)
+# print(plotly.io.renderers.default)
 # plotly.io.renderers.default = 'chrome'
 
 # Begin
-full_data_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y") + 'complete_data.csv')
-world_pop_file = os.path.join(os.getcwd(), 'world_population_csv.csv')
+full_data_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y"), time.strftime("%d%m%Y") + 'complete_data.csv')
+world_pop_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y"), 'world_population_csv.csv')
 
-# Israel
-base_country = 'Israel'  # may be: 'world' or country name like 'Russia' from the complete_data.csv
-base_country_file = os.path.join(os.getcwd(), base_country + '_db.csv')
+clean_db = pd.read_csv(full_data_file)
+# Remove Israel
+all_countries = clean_db[clean_db['Country'].str.contains('Israel') != True]
+all_countries = all_countries['Country'].unique()
+# Add world to the beginning
+all_countries = np.insert(all_countries, 0, 'world')
+# Add First of all Israel
+all_countries = np.insert(all_countries, 0, 'Israel')
 
-if os.path.exists(base_country_file):
-    base_db = pd.read_csv(base_country_file)
+# Some countries
+some_countries = ['Israel', 'world', 'US', 'Russia', 'Brazil', 'Italy', 'Iran', 'Spain', 'France', 'Belgium',  'Sweden',
+                  'Singapore', 'Switzerland', 'Turkey', 'Denmark', 'Germany', 'Austria', 'Australia', 'Japan', 'South Korea',
+                  'Portugal', 'Norway', 'Qatar', 'Iceland', 'Ireland', 'New Zealand', 'Panama', 'Estonia', 'Cyprus']
 
-elif os.path.exists(full_data_file):
-    clean_db = pd.read_csv(full_data_file)
-    world_population = pd.read_csv(world_pop_file)
-    clean_db['Date'] = pd.to_datetime(clean_db['Date'])
+do_all = False
+some = True
+if do_all:
+    countries = all_countries
+elif some:
+    countries = some_countries
+else:
+    countries = ['Israel', 'world']
+# also the possibility for run if already some_countries were running or
+# are not relevant due to absent some data
+# Caution: In 'United Kingdom', 'Netherlands' the recovered data are absent
+remove_countries = ['United Kingdom', 'Netherlands', 'Taiwan*']
+countries = [item for item in countries if item not in remove_countries]
 
-    # Sort by Date
-    daily = clean_db.sort_values(['Date', 'Country', 'State'])
-    base_db = country_analysis(clean_db, world_population, country=base_country, state='', plt=True, fromFirstConfirm=True)
-    base_db.to_csv(os.path.join(os.getcwd(), base_country + '_db.csv'), index=False)
+# If prediction is not good the figure is shows (if flag activate) and not saved
+show_not_good_prediction = False
 
+for base_country in countries:
+    # For Example Israel
+    # base_country = 'Israel'  # may be: 'world' or country name like 'Russia' from the complete_data.csv
+    print(base_country)
+    base_country_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y"), base_country + '_db.csv')
 
-# range in days from threshold's Confirmed Cases
-predict_range = 360
-# threshold according to number of days. how many days use in estimation. default - all days till current day
-threshDays = None
+    if os.path.exists(base_country_file):
+        base_db = pd.read_csv(base_country_file)
 
-##################################################################################################
+    elif os.path.exists(full_data_file):
+        clean_db = pd.read_csv(full_data_file)
+        world_population = pd.read_csv(world_pop_file)
+        clean_db['Date'] = pd.to_datetime(clean_db['Date'])
 
-# SIR
-do_SIR = True
-# threshold on Confirmed value (from which value to begin estimation)
-threshConfrirm = int(base_db.Confirmed.values[-1] * 0.005)
-# For SIR algo: Estimated percent of suspected population in %, for example 0.055%
-suspected_prcnt_pop = 0.055 / 100
+        # Sort by Date
+        daily = clean_db.sort_values(['Date', 'Country', 'State'])
+        base_db = country_analysis(clean_db, world_population, country=base_country, state='', plt=True, fromFirstConfirm=True)
+        base_db.to_csv(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), base_country + '_db.csv'), index=False)
 
-if do_SIR:
-    try:
-        data_db = base_db.copy()
-        data_db['Date'] = pd.to_datetime(data_db['Date'])
-        day = data_db.Date.max()
-        # whether the number of suspected is estimated on % of population or according to current Confirmed value
-        do_on_pop = False
-        if data_db.Active.values[-1] < 0.5 * data_db.Confirmed.values[-1]:
+    # range in days from threshold's Confirmed Cases
+    predict_range = 360
+    # threshold according to number of days. how many days use in estimation. default - all days till current day
+    threshDays = None
+
+    ##################################################################################################
+
+    # SIR
+    do_SIR = True
+    # threshold on Confirmed value (from which value to begin estimation)
+    threshConfrirm = int(base_db.Confirmed.values[-1] * 0.0075)
+    # For SIR algo: Estimated percent of suspected population in %, for example 0.055%
+    suspected_prcnt_pop = 0.05 / 100
+
+    if do_SIR:
+        print('Prediction with SIR Algorithm')
+        try:
+            data_db = base_db.copy()
+            data_db['Date'] = pd.to_datetime(data_db['Date'])
+            day = data_db.Date.max()
+            # whether the number of suspected is estimated on % of population or according to current Confirmed value
             do_on_pop = False
-        if do_on_pop:
-            # there is estimation of 0.055% of population will be as suspected
-            s_0 = np.max([data_db.Confirmed.values[-1], (data_db.Population.values[0]*suspected_prcnt_pop).astype(int)])
-            print([threshConfrirm, data_db.Confirmed.values[-1], (data_db.Population.values[0]*suspected_prcnt_pop).astype(int)])
-        else:
-            s_0 = None
-            print([threshConfrirm, data_db.Confirmed.values[-1]])
-        data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0, threshConfrirm=threshConfrirm)
-        sir_annot = dict(xref='paper', yref='paper', x=0.25, y=0.95, align='left', font=dict(size=14), text=text)
-        data['Date'] = data.index
-        data.Date = pd.to_datetime(data.Date)
-        with open(os.path.join(os.getcwd(), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
-            fsc1 = scatter_country_plot(data, fname=' - ' + base_country + ' - Prediction with SIR Algorithm ',
-                                        inputs=data.keys()[:-1], annotations=sir_annot, day=day.strftime('%d/%m/%y'))
-            f.write(fsc1.to_html(full_html=False, include_plotlyjs='cdn'))
-
-    except Exception as e:
-        print(e)
-        print('Not executed Prediction with SIR Algorithm')
-
-##################################################################################################################
-# Prophet Algorithm
-do_prophet = True
-# threshold on Confirmed value (from which value to begin estimation)
-threshConfrirm = 1
-if do_prophet:
-    try:
-        # For Confirmed Cases
-        cnfrm, forecast_cnfrm, fig_cnfrm = prophet_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range,
-                                            first_n=predict_range, last_n=predict_range, threshConfrirm=threshConfrirm)
-        # For Recover Cases
-        # This prediction is truly based on the dataset depend on the current situation.
-        # In future if we able to get vaccine there will be gradual changes in recovery
-        rec, forecast_rec, fig_rec = prophet_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range,
-                                            first_n=predict_range, last_n=predict_range, threshConfrirm=threshConfrirm)
-        # For Death
-        dth, forecast_dth, fig_dth = prophet_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range,
-                                            first_n=predict_range, last_n=predict_range, threshConfrirm=threshConfrirm)
-
-        # For Active - not usable because of linear or logistic nature of predictions only
-        # act, forecast_act, fig_act = prophet_modeling_and_predicting(base_db, 'Active', predict_range=predict_range,
-        #                                    first_n=predict_range, last_n=predict_range, threshConfrirm=threshConfrirm)
-
-        # How future looks like!!
-        data = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
-        len_data = data.shape[0]
-        data['Date'] = pd.to_datetime(data['Date'])
-        day = data.Date.max()
-        dates = extend_index(data.Date, predict_range)
-        inputs = ['Confirmed', 'Deaths', 'Recovered', 'Active']
-        prop_df = extended_data(data, inputs, dates, prefix='')
-        size = len(dates)
-
-        prop_df['PredictedConfirmed'] = cnfrm.Confirmed.values.clip(0).astype(int)
-        prop_df['PredictedRecovered'] = rec.Recovered.values.clip(0).astype(int)
-        prop_df['PredictedDeaths'] = dth.Deaths.values.clip(0).astype(int)
-        # prop_df['PredictedActive'] = act.Active.values.clip(0).astype(int)
-        prop_df['LowPredictedConfirmed'] = forecast_cnfrm.trend_lower.values.clip(0).astype(int)
-        prop_df['LowPredictedRecovered'] = forecast_rec.trend_lower.values.clip(0).astype(int)
-        prop_df['LowPredictedDeaths'] = forecast_dth.trend_lower.values.clip(0).astype(int)
-        # prop_df['LowPredictedActive'] = forecast_act.yhat_lower.values.clip(0).astype(int)
-        prop_df['HighPredictedConfirmed'] = forecast_cnfrm.trend_upper.values.clip(0).astype(int)
-        prop_df['HighPredictedRecovered'] = forecast_rec.trend_upper.values.clip(0).astype(int)
-        prop_df['HighPredictedDeaths'] = forecast_dth.trend_upper.values.clip(0).astype(int)
-        # prop_df['HighPredictedActive'] = forecast_act.trend_upper.values.clip(0).astype(int)
-        prop_df = prop_df.fillna(0)
-        # It is not considered the death values for more relax date recovery value
-        prop_df = prop_df[prop_df['PredictedRecovered'] <= prop_df['PredictedConfirmed']]
-        prop_df['Date'] = prop_df.index
-        prop_df.Date = pd.to_datetime(prop_df.Date)
-
-        Dprop = prop_df['Date'].max() - day
-
-        # Future Ratio and percentages
-        pr_pps = float(prop_df.PredictedRecovered[-1]/prop_df.PredictedConfirmed[-1])
-        pd_pps = float(prop_df.PredictedDeaths[-1]/prop_df.PredictedConfirmed[-1])
-
-        print("The percentage of Predicted recovery after confirmation is " + str(round(pr_pps*100, 2)))
-        print("The percentage of Predicted Death after confirmation is " + str(round(pd_pps*100, 2)))
-        print('Days to recovery ' + str(Dprop.days) + ' - ' + prop_df['Date'].max().strftime('%d/%m/%y'))
-
-        pred_ann = dict(xref='paper', yref='paper', x=0.2, y=0.95, align='left', font=dict(size=14),
-                        text='Since the ' + str(threshConfrirm) + ' Confirmed Case'
-                             + '<br>Low Bound Predicted Recovery after confirmation is ' + str(round(pr_pps*100, 1))
-                             + '%<br>Low Bound Predicted Death after confirmation is ' + str(round(pd_pps*100, 1)) + '%'
-                             + '<br>Days to recovery ' + str(Dprop.days) + ' - ' + prop_df['Date'].max().strftime('%d/%m/%y'))
-
-        with open(os.path.join(os.getcwd(), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
-            fsc2 = line_country_plot(prop_df,
-                                     fname=' - ' + base_country + ' - Prediction with Prophet Algorithm ',
-                                     prefixes=['', 'Predicted', 'LowPredicted', 'HighPredicted'],
-                                     annotations=pred_ann, day=day.strftime('%d/%m/%y'))
-            if pr_pps + pd_pps < 0.75:
-                # If prediction is not good the figure is shows only and not saved
-                fsc2.show()
+            active_ratio = data_db.Active.values[-1] / data_db.Confirmed.values[-1]
+            if active_ratio < 0.45:
+                do_on_pop = False
+                threshConfrirm = int(base_db.Confirmed.values[-1] * 0.05)
+            elif active_ratio > 0.7:
+                do_on_pop = True
+                threshConfrirm = int(base_db.Confirmed.values[-1] * 0.001)
+            if do_on_pop:
+                # there is estimation of 0.055% of population will be as suspected
+                s_0 = np.max([data_db.Confirmed.values[-1], (data_db.Population.values[0]*suspected_prcnt_pop).astype(int)])
+                print([threshConfrirm, data_db.Confirmed.values[-1],
+                       (data_db.Population.values[0]*suspected_prcnt_pop).astype(int), round(active_ratio,2)])
             else:
-                f.write(fsc2.to_html(full_html=False, include_plotlyjs='cdn'))
-    except Exception as e:
-        print(e)
-        print('Not executed Prediction with Prophet Algorithm')
+                s_0 = None
+                print([threshConfrirm, data_db.Confirmed.values[-1], round(active_ratio,2)])
+            data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0, threshConfrirm=threshConfrirm)
+            sir_annot = dict(xref='paper', yref='paper', x=0.25, y=0.95, align='left', font=dict(size=14), text=text)
+            data['Date'] = data.index
+            data.Date = pd.to_datetime(data.Date)
+            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
+                fsc1 = scatter_country_plot(data, fname=' - ' + base_country + ' - Prediction with SIR Algorithm ',
+                                            inputs=data.keys()[:-1], annotations=sir_annot, day=day.strftime('%d/%m/%y'))
+                f.write(fsc1.to_html(full_html=False, include_plotlyjs='cdn'))
+
+        except Exception as e:
+            print(e)
+            try:
+                print('Last Try')
+                threshConfrirm = 1
+                data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0, threshConfrirm=threshConfrirm)
+            except Exception as e:
+                print(e)
+                print('Not executed Prediction with SIR Algorithm. May be some data are absent. '
+                      'May be were some problems in data reporting')
+
+    ##################################################################################################################
+    # Prophet Algorithm
+    do_prophet = True
+    # threshold on Confirmed value (from which value to begin estimation)
+    threshConfrirm = 1
+    if do_prophet:
+        print('Prediction with Prophet Algorithm')
+        try:
+            # For Confirmed Cases
+            cnfrm, forecast_cnfrm, fig_cnfrm = prophet_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range,
+                                                first_n=predict_range, last_n=predict_range, threshConfrirm=threshConfrirm)
+            # For Recover Cases
+            # This prediction is truly based on the dataset depend on the current situation.
+            # In future if we able to get vaccine there will be gradual changes in recovery
+            rec, forecast_rec, fig_rec = prophet_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range,
+                                                first_n=predict_range, last_n=predict_range, threshConfrirm=threshConfrirm)
+            # For Death
+            dth, forecast_dth, fig_dth = prophet_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range,
+                                                first_n=predict_range, last_n=predict_range, threshConfrirm=threshConfrirm)
+
+            # For Active - not usable because of linear or logistic nature of predictions only
+            # act, forecast_act, fig_act = prophet_modeling_and_predicting(base_db, 'Active', predict_range=predict_range,
+            #                                    first_n=predict_range, last_n=predict_range, threshConfrirm=threshConfrirm)
+
+            # How future looks like!!
+            data = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
+            len_data = data.shape[0]
+            data['Date'] = pd.to_datetime(data['Date'])
+            day = data.Date.max()
+            dates = extend_index(data.Date, predict_range)
+            inputs = ['Confirmed', 'Deaths', 'Recovered', 'Active']
+            prop_df = extended_data(data, inputs, dates, prefix='')
+            size = len(dates)
+
+            prop_df['PredictedConfirmed'] = cnfrm.Confirmed.values.clip(0).astype(int)
+            prop_df['PredictedRecovered'] = rec.Recovered.values.clip(0).astype(int)
+            prop_df['PredictedDeaths'] = dth.Deaths.values.clip(0).astype(int)
+            # prop_df['PredictedActive'] = act.Active.values.clip(0).astype(int)
+            prop_df['LowPredictedConfirmed'] = forecast_cnfrm.trend_lower.values.clip(0).astype(int)
+            prop_df['LowPredictedRecovered'] = forecast_rec.trend_lower.values.clip(0).astype(int)
+            prop_df['LowPredictedDeaths'] = forecast_dth.trend_lower.values.clip(0).astype(int)
+            # prop_df['LowPredictedActive'] = forecast_act.yhat_lower.values.clip(0).astype(int)
+            prop_df['HighPredictedConfirmed'] = forecast_cnfrm.trend_upper.values.clip(0).astype(int)
+            prop_df['HighPredictedRecovered'] = forecast_rec.trend_upper.values.clip(0).astype(int)
+            prop_df['HighPredictedDeaths'] = forecast_dth.trend_upper.values.clip(0).astype(int)
+            # prop_df['HighPredictedActive'] = forecast_act.trend_upper.values.clip(0).astype(int)
+            prop_df = prop_df.fillna(0)
+            # It is not considered the death values for more relax date recovery value
+            prop_df = prop_df[prop_df['PredictedRecovered'] <= prop_df['PredictedConfirmed']]
+            prop_df['Date'] = prop_df.index
+            prop_df.Date = pd.to_datetime(prop_df.Date)
+
+            Dprop = prop_df['Date'].max() - day
+
+            # Future Ratio and percentages
+            pr_pps = float(prop_df.PredictedRecovered[-1]/prop_df.PredictedConfirmed[-1])
+            pd_pps = float(prop_df.PredictedDeaths[-1]/prop_df.PredictedConfirmed[-1])
+
+            print("The percentage of Predicted recovery after confirmation is " + str(round(pr_pps*100, 2)))
+            print("The percentage of Predicted Death after confirmation is " + str(round(pd_pps*100, 2)))
+            print('Days to recovery ' + str(Dprop.days) + ' - ' + prop_df['Date'].max().strftime('%d/%m/%y'))
+
+            pred_ann = dict(xref='paper', yref='paper', x=0.2, y=0.95, align='left', font=dict(size=14),
+                            text='Since the ' + str(threshConfrirm) + ' Confirmed Case'
+                                 + '<br>Low Bound Predicted Recovery after confirmation is ' + str(round(pr_pps*100, 1))
+                                 + '%<br>Low Bound Predicted Death after confirmation is ' + str(round(pd_pps*100, 1)) + '%'
+                                 + '<br>Days to recovery ' + str(Dprop.days) + ' - ' + prop_df['Date'].max().strftime('%d/%m/%y'))
+
+            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
+                fsc2 = line_country_plot(prop_df,
+                                         fname=' - ' + base_country + ' - Prediction with Prophet Algorithm ',
+                                         prefixes=['', 'Predicted', 'LowPredicted', 'HighPredicted'],
+                                         annotations=pred_ann, day=day.strftime('%d/%m/%y'))
+                if pr_pps + pd_pps < 0.75:
+                    # If prediction is not good the figure is shows only and not saved
+                    if show_not_good_prediction:
+                        fsc2.show()
+                    pass
+                else:
+                    f.write(fsc2.to_html(full_html=False, include_plotlyjs='cdn'))
+        except Exception as e:
+            print(e)
+            print('Not executed Prediction with Prophet Algorithm')
 
 
-###############################################################################################################
-# Arima Algo - Autoregressive Integrated Moving Average Model
-do_ARIMA = True
-threshConfrirm = int(base_db.Confirmed.values[-1] * 0.01)
-if do_ARIMA:
-    try:
-        # For Confirmed Cases
-        acnfrm, mse_cnfrm = arima_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range,
+    ###############################################################################################################
+    # Arima Algo - Autoregressive Integrated Moving Average Model
+    do_ARIMA = True
+    threshConfrirm = int(base_db.Confirmed.values[-1] * 0.01)
+    if do_ARIMA:
+        print('Prediction with ARIMA Algorithm')
+        try:
+            # For Confirmed Cases
+            acnfrm, mse_cnfrm = arima_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range,
+                                                              threshConfrirm=threshConfrirm)
+            # For Recover Cases
+            # This prediction is truly based on the dataset depend on the current situation.
+            # In future if we able to get vaccine there will be gradual changes in recovery
+            arec, mse_rec = arima_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range,
                                                           threshConfrirm=threshConfrirm)
-        # For Recover Cases
-        # This prediction is truly based on the dataset depend on the current situation.
-        # In future if we able to get vaccine there will be gradual changes in recovery
-        arec, mse_rec = arima_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range,
-                                                      threshConfrirm=threshConfrirm)
-        # For Death
-        adth, mse_dth = arima_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range,
-                                                      threshConfrirm=threshConfrirm)
-        # For Active
-        aact, mse_act = arima_modeling_and_predicting(base_db, 'Active', predict_range=predict_range,
-                                                      threshConfrirm=threshConfrirm)
+            # For Death
+            adth, mse_dth = arima_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range,
+                                                          threshConfrirm=threshConfrirm)
+            # For Active
+            aact, mse_act = arima_modeling_and_predicting(base_db, 'Active', predict_range=predict_range,
+                                                          threshConfrirm=threshConfrirm)
 
-        # How future looks like!!
-        data = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
-        len_data = data.shape[0]
-        data['Date'] = pd.to_datetime(data['Date'])
-        day = data.Date.max()
+            # How future looks like!!
+            data = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
+            len_data = data.shape[0]
+            data['Date'] = pd.to_datetime(data['Date'])
+            day = data.Date.max()
 
-        dates = extend_index(data.Date, predict_range)
-        inputs = ['Confirmed', 'Deaths', 'Recovered', 'Active']
-        aprop_df = extended_data(data, inputs, dates)
-        size = len(dates)
+            dates = extend_index(data.Date, predict_range)
+            inputs = ['Confirmed', 'Deaths', 'Recovered', 'Active']
+            aprop_df = extended_data(data, inputs, dates)
+            size = len(dates)
 
-        aprop_df['PredictedConfirmed'] = acnfrm.Confirmed.values.astype(int)
-        aprop_df['PredictedRecovered'] = arec.Recovered.values.astype(int)
-        aprop_df['PredictedDeaths'] = adth.Deaths.values.astype(int)
-        aprop_df['PredictedActive'] = aact.Active.values.astype(int)
-        aprop_df = aprop_df.fillna(0)
-        # It is not considered the death values for more relax date recovery value
-        aprop_df = aprop_df[aprop_df['PredictedRecovered'] <= aprop_df['PredictedConfirmed']]
-        aprop_df = aprop_df[aprop_df['PredictedActive'] >= 0]
-        aprop_df['Date'] = aprop_df.index
-        aprop_df.Date = pd.to_datetime(aprop_df.Date)
+            aprop_df['PredictedConfirmed'] = acnfrm.Confirmed.values.astype(int)
+            aprop_df['PredictedRecovered'] = arec.Recovered.values.astype(int)
+            aprop_df['PredictedDeaths'] = adth.Deaths.values.astype(int)
+            aprop_df['PredictedActive'] = aact.Active.values.astype(int)
+            aprop_df = aprop_df.fillna(0)
+            # It is not considered the death values for more relax date recovery value
+            aprop_df = aprop_df[aprop_df['PredictedRecovered'] <= aprop_df['PredictedConfirmed']]
+            aprop_df = aprop_df[aprop_df['PredictedActive'] >= 0]
+            aprop_df['Date'] = aprop_df.index
+            aprop_df.Date = pd.to_datetime(aprop_df.Date)
 
-        # Future Ratio and percentages
-        apr_pps = float(aprop_df.PredictedRecovered[-1]/aprop_df.PredictedConfirmed[-1])
-        apd_pps = float(aprop_df.PredictedDeaths[-1]/aprop_df.PredictedConfirmed[-1])
-        Daprop = aprop_df['Date'].max() - day
+            # Future Ratio and percentages
+            apr_pps = float(aprop_df.PredictedRecovered[-1]/aprop_df.PredictedConfirmed[-1])
+            apd_pps = float(aprop_df.PredictedDeaths[-1]/aprop_df.PredictedConfirmed[-1])
+            Daprop = aprop_df['Date'].max() - day
 
-        print("The percentage of Predicted recovery after confirmation is %.2f" % (apr_pps*100))
-        print("The percentage of Predicted Death after confirmation is %.2f" % (apd_pps*100))
-        print('Days to recovery=' + str(Daprop.days) + ' - ' + aprop_df['Date'].max().strftime('%d/%m/%y'))
+            print("The percentage of Predicted recovery after confirmation is %.2f" % (apr_pps*100))
+            print("The percentage of Predicted Death after confirmation is %.2f" % (apd_pps*100))
+            print('Days to recovery=' + str(Daprop.days) + ' - ' + aprop_df['Date'].max().strftime('%d/%m/%y'))
 
-        pred_ann = dict(xref='paper', yref='paper', x=0.2, y=0.9, align='left', font=dict(size=14),
-                        text='Since the ' + str(threshConfrirm) + ' Confirmed Case'
-                             + '<br>rmse(Cnfrm)=' + str(int(mse_cnfrm)) + ', rmse(Recv)=' + str(int(mse_rec))
-                             + ', rmse(Dth)=' + str(int(mse_dth)) + ', rmse(Actv)=' + str(int(mse_act))
-                             + '<br>Predicted Recovery after confirmation is ' + str(round(apr_pps*100, 1))
-                             + '%<br>Predicted Death after confirmation is ' + str(round(apd_pps*100, 1))
-                             + '<br>Days to recovery ' + str(Daprop.days) + ' - ' + aprop_df['Date'].max().strftime('%d/%m/%y'))
+            pred_ann = dict(xref='paper', yref='paper', x=0.2, y=0.9, align='left', font=dict(size=14),
+                            text='Since the ' + str(threshConfrirm) + ' Confirmed Case'
+                                 + '<br>rmse(Cnfrm)=' + str(int(mse_cnfrm)) + ', rmse(Recv)=' + str(int(mse_rec))
+                                 + ', rmse(Dth)=' + str(int(mse_dth)) + ', rmse(Actv)=' + str(int(mse_act))
+                                 + '<br>Predicted Recovery after confirmation is ' + str(round(apr_pps*100, 1))
+                                 + '%<br>Predicted Death after confirmation is ' + str(round(apd_pps*100, 1))
+                                 + '<br>Days to recovery ' + str(Daprop.days) + ' - ' + aprop_df['Date'].max().strftime('%d/%m/%y'))
 
-        with open(os.path.join(os.getcwd(), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
-            fsc3 = scatter_country_plot(aprop_df, fname=' - ' + base_country + ' - Prediction with ARIMA Algorithm ',
-                                        inputs=aprop_df.keys()[:-1], annotations=pred_ann, day=day.strftime('%d/%m/%y'))
-            if apr_pps + apd_pps < 0.75:
-                # If prediction is not good the figure is shows only and not saved
-                fsc3.show()
-            else:
-                f.write(fsc3.to_html(full_html=False, include_plotlyjs='cdn'))
-    except Exception as e:
-        print(e)
-        print('Not executed Prediction with ARIMA Algorithm')
+            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
+                fsc3 = scatter_country_plot(aprop_df, fname=' - ' + base_country + ' - Prediction with ARIMA Algorithm ',
+                                            inputs=aprop_df.keys()[:-1], annotations=pred_ann, day=day.strftime('%d/%m/%y'))
+                if apr_pps + apd_pps < 0.75:
+                    # If prediction is not good the figure is shows only and not saved
+                    if show_not_good_prediction:
+                        fsc3.show()
+                    pass
+                else:
+                    f.write(fsc3.to_html(full_html=False, include_plotlyjs='cdn'))
+        except Exception as e:
+            print(e)
+            print('Not executed Prediction with ARIMA Algorithm')
 
-#########################################################################################
-# LSTM
-do_LSTM = True
-# threshold on Confirmed value (from which value to begin estimation)
-threshConfrirm = int(base_db.Confirmed.values[-1] * 0.001)
-if do_LSTM:
-    try:
-        lstm_active = LSTM_modeling_and_predicting(base_db, 'Active', predict_range=predict_range, threshConfrirm=threshConfrirm)
-        lstm_cnfrm = LSTM_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range, threshConfrirm=threshConfrirm)
-        lstm_rec = LSTM_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range, threshConfrirm=threshConfrirm)
-        lstm_dth = LSTM_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range, threshConfrirm=threshConfrirm)
+    #########################################################################################
+    # LSTM
+    do_LSTM = True
+    # threshold on Confirmed value (from which value to begin estimation)
+    threshConfrirm = int(base_db.Confirmed.values[-1] * 0.001)
+    if do_LSTM:
+        print('Prediction with LSTM Algorithm')
+        try:
+            lstm_active = LSTM_modeling_and_predicting(base_db, 'Active', predict_range=predict_range, threshConfrirm=threshConfrirm)
+            lstm_cnfrm = LSTM_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range, threshConfrirm=threshConfrirm)
+            lstm_rec = LSTM_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range, threshConfrirm=threshConfrirm)
+            lstm_dth = LSTM_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range, threshConfrirm=threshConfrirm)
 
-        # How future looks like!!
-        data = base_db.copy()
-        data = (data.loc[data.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
-        len_data = data.shape[0]
-        data['Date'] = pd.to_datetime(data['Date'])
-        day = data.Date.max()
-        cur_predict_range = np.min([predict_range, lstm_active.shape[0]])
-        dates = extend_index(data.Date, cur_predict_range)
-        inputs = ['Confirmed', 'Deaths', 'Recovered', 'Active']
-        lstm_prop_df = extended_data(data, inputs, dates)
-        size = len(dates)
+            # How future looks like!!
+            data = base_db.copy()
+            data = (data.loc[data.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
+            len_data = data.shape[0]
+            data['Date'] = pd.to_datetime(data['Date'])
+            day = data.Date.max()
+            cur_predict_range = np.min([predict_range, lstm_active.shape[0]])
+            dates = extend_index(data.Date, cur_predict_range)
+            inputs = ['Confirmed', 'Deaths', 'Recovered', 'Active']
+            lstm_prop_df = extended_data(data, inputs, dates)
+            size = len(dates)
 
-        lstm_prop_df['PredictedConfirmed'] = lstm_cnfrm.Confirmed.astype(int)
-        lstm_prop_df['PredictedRecovered'] = lstm_rec.Recovered.astype(int)
-        lstm_prop_df['PredictedDeaths'] = lstm_dth.Deaths.astype(int)
-        lstm_prop_df['PredictedActive'] = lstm_active.Active.astype(int)
+            lstm_prop_df['PredictedConfirmed'] = lstm_cnfrm.Confirmed.astype(int)
+            lstm_prop_df['PredictedRecovered'] = lstm_rec.Recovered.astype(int)
+            lstm_prop_df['PredictedDeaths'] = lstm_dth.Deaths.astype(int)
+            lstm_prop_df['PredictedActive'] = lstm_active.Active.astype(int)
 
-        lstm_prop_df = lstm_prop_df.fillna(0)
+            lstm_prop_df = lstm_prop_df.fillna(0)
 
-        lstm_prop_df['Date'] = lstm_prop_df.index
-        lstm_prop_df.Date = pd.to_datetime(lstm_prop_df.Date)
-        # It is not considered the death values for more relax date recovery value
-        lstm_prop_df = lstm_prop_df[lstm_prop_df['PredictedRecovered'] <= lstm_prop_df['PredictedConfirmed']]
-        lstm_prop_df = lstm_prop_df.reset_index()
-        lstm_prop_df.pop('index')
+            lstm_prop_df['Date'] = lstm_prop_df.index
+            lstm_prop_df.Date = pd.to_datetime(lstm_prop_df.Date)
+            # It is not considered the death values for more relax date recovery value
+            lstm_prop_df = lstm_prop_df[lstm_prop_df['PredictedRecovered'] <= lstm_prop_df['PredictedConfirmed']]
+            lstm_prop_df = lstm_prop_df.reset_index()
+            lstm_prop_df.pop('index')
 
-        idx = lstm_prop_df.PredictedActive[lstm_prop_df.PredictedActive == lstm_prop_df.PredictedActive.values[-1]].index[0]
-        lstm_prop_df = lstm_prop_df.loc[:idx]
-        # Future Ratio and percentages
-        lpr_pps = float(lstm_prop_df.PredictedRecovered.values[-1]/lstm_prop_df.PredictedConfirmed.values[-1])
-        lpd_pps = float(lstm_prop_df.PredictedDeaths.values[-1]/lstm_prop_df.PredictedConfirmed.values[-1])
+            idx_real = lstm_prop_df.RealActive.to_numpy().nonzero()[0][-1]
+            idx_pred = np.where((lstm_prop_df.PredictedActive[idx_real:] == lstm_prop_df.PredictedActive.values[-1]))[0][0]
 
-        Dlstm = lstm_prop_df['Date'].max() - day
+            idx = idx_real + idx_pred
+            if idx >= idx_real:
+                lstm_prop_df = lstm_prop_df.loc[:idx]
 
-        print("The percentage of Predicted recovery after confirmation is %.2f" % (lpr_pps*100))
-        print("The percentage of Predicted Death after confirmation is %.2f" % (lpd_pps*100))
-        print('Days to recovery ' + str(Dlstm.days) + ' - ' + lstm_prop_df['Date'].max().strftime('%d/%m/%y'))
+            # Future Ratio and percentages
+            lpr_pps = float(lstm_prop_df.PredictedRecovered.values[-1]/lstm_prop_df.PredictedConfirmed.values[-1])
+            lpd_pps = float(lstm_prop_df.PredictedDeaths.values[-1]/lstm_prop_df.PredictedConfirmed.values[-1])
 
-        pred_ann = dict(xref='paper', yref='paper', x=0.2, y=0.9, align='left', font=dict(size=14),
-                        text='Since the ' + str(threshConfrirm) + ' Confirmed Case'
-                             + '<br>Predicted Recovery after confirmation is ' + str(round(lpr_pps*100, 1))
-                             + '%<br>Predicted Death after confirmation is ' + str(round(lpd_pps*100, 1))
-                             + '<br>Days to recovery ' + str(Dlstm.days) + ' - ' + lstm_prop_df['Date'].max().strftime('%d/%m/%y'))
+            Dlstm = lstm_prop_df['Date'].max() - day
 
-        with open(os.path.join(os.getcwd(), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
-            fsc4 = scatter_country_plot(lstm_prop_df,
-                                        fname=' - ' + base_country + ' - Prediction with LSTM Algorithm ',
-                                        inputs=lstm_prop_df.keys()[:-1], annotations=pred_ann, day=day.strftime('%d/%m/%y'))
-            if lpr_pps + lpd_pps < 0.55:
-                # If prediction is not good the figure is shows only and not saved
-                fsc4.show()
-            else:
-                f.write(fsc4.to_html(full_html=False, include_plotlyjs='cdn'))
-    except Exception as e:
-        print(e)
-        print('Not executed Prediction with LSTM Algorithm')
+            print("The percentage of Predicted recovery after confirmation is %.2f" % (lpr_pps*100))
+            print("The percentage of Predicted Death after confirmation is %.2f" % (lpd_pps*100))
+            print('Days to recovery ' + str(Dlstm.days) + ' - ' + lstm_prop_df['Date'].max().strftime('%d/%m/%y'))
 
-################################################################################################
-# Regression
-do_reg = True
-threshConfrirm = 1
-if do_reg:
-    try:
-        reg_cnfrm = regression_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range, threshConfrirm=threshConfrirm)
-        reg_rec = regression_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range, threshConfrirm=threshConfrirm)
-        reg_dth = regression_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range, threshConfrirm=threshConfrirm)
-        reg_act = regression_modeling_and_predicting(base_db, 'Active', predict_range=predict_range, threshConfrirm=threshConfrirm)
+            pred_ann = dict(xref='paper', yref='paper', x=0.2, y=0.9, align='left', font=dict(size=14),
+                            text='Since the ' + str(threshConfrirm) + ' Confirmed Case'
+                                 + '<br>Predicted Recovery after confirmation is ' + str(round(lpr_pps*100, 1))
+                                 + '%<br>Predicted Death after confirmation is ' + str(round(lpd_pps*100, 1))
+                                 + '<br>Days to recovery ' + str(Dlstm.days) + ' - '
+                                 + lstm_prop_df['Date'].max().strftime('%d/%m/%y'))
 
-        # How future looks like!!
-        data = base_db.copy()
-        data = (data.loc[data.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
-        data['Date'] = pd.to_datetime(data['Date'])
-        dates = extend_index(data.Date, predict_range)
-        inputs = ['Confirmed', 'Deaths', 'Recovered', 'Active']
-        reg_prop_df = extended_data(data, inputs, dates)
-        size = len(dates)
+            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
+                fsc4 = scatter_country_plot(lstm_prop_df,
+                                            fname=' - ' + base_country + ' - Prediction with LSTM Algorithm ',
+                                            inputs=lstm_prop_df.keys()[:-1], annotations=pred_ann, day=day.strftime('%d/%m/%y'))
+                if lpr_pps + lpd_pps < 0.55:
+                    # If prediction is not good the figure is shows only and not saved
+                    if show_not_good_prediction:
+                        fsc4.show()
+                    pass
+                else:
+                    f.write(fsc4.to_html(full_html=False, include_plotlyjs='cdn'))
+        except Exception as e:
+            print(e)
+            print('Not executed Prediction with LSTM Algorithm')
 
-        reg_prop_df['PredictedConfirmed'] = reg_cnfrm.Confirmed
-        reg_prop_df['PredictedRecovered'] = reg_rec.Recovered
-        reg_prop_df['PredictedDeaths'] = reg_dth.Deaths
-        reg_prop_df['PredictedActive'] = reg_act.Active
-        reg_prop_df['PredictedConfirmed'] = reg_act.Active + reg_dth.Deaths + reg_rec.Recovered
-        reg_prop_df = reg_prop_df.fillna(0)
+    ################################################################################################
+    # Regression
+    do_reg = True
+    threshConfrirm = 1
+    if do_reg:
+        print('Prediction with Multi-layer Perceptron Regressor Algorithm')
+        try:
+            reg_cnfrm = regression_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range, threshConfrirm=threshConfrirm)
+            reg_rec = regression_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range, threshConfrirm=threshConfrirm)
+            reg_dth = regression_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range, threshConfrirm=threshConfrirm)
+            reg_act = regression_modeling_and_predicting(base_db, 'Active', predict_range=predict_range, threshConfrirm=threshConfrirm)
 
-        day = data.Date.max()
-        reg_prop_df['Date'] = reg_prop_df.index
-        reg_prop_df.Date = pd.to_datetime(reg_prop_df.Date)
-        # It is not considered the death values for more relax date recovery value
-        reg_prop_df = reg_prop_df[reg_prop_df['PredictedRecovered'] <= reg_prop_df['PredictedConfirmed']]
-        reg_prop_df = reg_prop_df[reg_prop_df['PredictedActive'] > 0]
-        reg_prop_df = reg_prop_df.reset_index()
-        reg_prop_df.pop('index')
+            # How future looks like!!
+            data = base_db.copy()
+            data = (data.loc[data.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
+            data['Date'] = pd.to_datetime(data['Date'])
+            dates = extend_index(data.Date, predict_range)
+            inputs = ['Confirmed', 'Deaths', 'Recovered', 'Active']
+            reg_prop_df = extended_data(data, inputs, dates)
+            size = len(dates)
 
-        idx = reg_prop_df.PredictedActive[reg_prop_df.PredictedActive == reg_prop_df.PredictedActive.values[-1]].index[0]
-        reg_prop_df = reg_prop_df.loc[:idx]
-        # Future Ratio and percentages
-        rpr_pps = float(reg_prop_df.PredictedRecovered.values[-1]/reg_prop_df.PredictedConfirmed.values[-1])
-        rpd_pps = float(reg_prop_df.PredictedDeaths.values[-1]/reg_prop_df.PredictedConfirmed.values[-1])
+            reg_prop_df['PredictedConfirmed'] = reg_cnfrm.Confirmed
+            reg_prop_df['PredictedRecovered'] = reg_rec.Recovered
+            reg_prop_df['PredictedDeaths'] = reg_dth.Deaths
+            reg_prop_df['PredictedActive'] = reg_act.Active
+            reg_prop_df['PredictedConfirmed'] = reg_act.Active + reg_dth.Deaths + reg_rec.Recovered
+            reg_prop_df = reg_prop_df.fillna(0)
 
-        Dreg = reg_prop_df['Date'].max() - day
+            day = data.Date.max()
+            reg_prop_df['Date'] = reg_prop_df.index
+            reg_prop_df.Date = pd.to_datetime(reg_prop_df.Date)
+            # It is not considered the death values for more relax date recovery value
+            reg_prop_df = reg_prop_df[reg_prop_df['PredictedRecovered'] <= reg_prop_df['PredictedConfirmed']]
+            reg_prop_df = reg_prop_df[reg_prop_df['PredictedActive'] > 0]
+            reg_prop_df = reg_prop_df.reset_index()
+            reg_prop_df.pop('index')
 
-        print("The percentage of Predicted recovery after confirmation is %.2f" % (rpr_pps*100))
-        print("The percentage of Predicted Death after confirmation is %.2f" % (rpd_pps*100))
-        print('Days to recovery ' + str(Dreg.days) + ' - ' + reg_prop_df['Date'].max().strftime('%d/%m/%y'))
+            idx_real = reg_prop_df.RealActive.to_numpy().nonzero()[0][-1]
+            # idx_pred = reg_prop_df.PredictedActive[reg_prop_df.PredictedActive[idx_real:] ==
+            #                                        reg_prop_df.PredictedActive.values[-1]].index[0]
+            idx_pred = np.where((reg_prop_df.PredictedActive[idx_real:] == reg_prop_df.PredictedActive.values[-1]))[0][0]
+            idx = idx_real + idx_pred
+            if idx >= idx_real:
+                reg_prop_df = reg_prop_df.loc[:idx]
+            # Future Ratio and percentages
+            rpr_pps = float(reg_prop_df.PredictedRecovered.values[-1]/reg_prop_df.PredictedConfirmed.values[-1])
+            rpd_pps = float(reg_prop_df.PredictedDeaths.values[-1]/reg_prop_df.PredictedConfirmed.values[-1])
 
-        pred_ann = dict(xref='paper', yref='paper', x=0.2, y=0.9, align='left', font=dict(size=14),
-                        text='Since the ' + str(threshConfrirm) + ' Confirmed Case'
-                             + '<br>Predicted Recovery after confirmation is ' + str(round(rpr_pps*100, 1))
-                             + '%<br>Predicted Death after confirmation is ' + str(round(rpd_pps*100, 1))
-                             + '<br>Days to recovery ' + str(Dreg.days) + ' - ' + reg_prop_df['Date'].max().strftime('%d/%m/%y'))
+            Dreg = reg_prop_df['Date'].max() - day
 
-        with open(os.path.join(os.getcwd(), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
-            fsc5 = scatter_country_plot(reg_prop_df,
-                                        fname=' - ' + base_country + ' - Prediction with Multi-layer Perceptron Regressor Algorithm ',
-                                        inputs=reg_prop_df.keys()[:-1], annotations=pred_ann, day=day.strftime('%d/%m/%y'))
-            if rpr_pps + rpd_pps < 0.75:
-                # If prediction is not good the figure is shows only and not saved
-                fsc5.show()
-            else:
-                f.write(fsc5.to_html(full_html=False, include_plotlyjs='cdn'))
-    except Exception as e:
-        print(e)
-        print('Not executed Prediction with Multi-layer Perceptron Regressor Algorithm')
+            print("The percentage of Predicted recovery after confirmation is %.2f" % (rpr_pps*100))
+            print("The percentage of Predicted Death after confirmation is %.2f" % (rpd_pps*100))
+            print('Days to recovery ' + str(Dreg.days) + ' - ' + reg_prop_df['Date'].max().strftime('%d/%m/%y'))
 
+            pred_ann = dict(xref='paper', yref='paper', x=0.2, y=0.9, align='left', font=dict(size=14),
+                            text='Since the ' + str(threshConfrirm) + ' Confirmed Case'
+                                 + '<br>Predicted Recovery after confirmation is ' + str(round(rpr_pps*100, 1))
+                                 + '%<br>Predicted Death after confirmation is ' + str(round(rpd_pps*100, 1))
+                                 + '<br>Days to recovery ' + str(Dreg.days) + ' - '
+                                 + reg_prop_df['Date'].max().strftime('%d/%m/%y'))
+
+            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
+                fsc5 = scatter_country_plot(reg_prop_df,
+                                            fname=' - ' + base_country + ' - Prediction with Multi-layer Perceptron Regressor Algorithm ',
+                                            inputs=reg_prop_df.keys()[:-1], annotations=pred_ann, day=day.strftime('%d/%m/%y'))
+                if rpr_pps + rpd_pps < 0.75:
+                    # If prediction is not good the figure is shows only and not saved
+                    if show_not_good_prediction:
+                        fsc5.show()
+                    pass
+                else:
+                    f.write(fsc5.to_html(full_html=False, include_plotlyjs='cdn'))
+        except Exception as e:
+            print(e)
+            print('Not executed Prediction with Multi-layer Perceptron Regressor Algorithm')
+
+    plt.close('all')
