@@ -579,10 +579,10 @@ for base_country in countries:
                 # there is estimation of 0.055% of population will be as suspected
                 s_0 = np.max([data_db.Confirmed.values[-1], (data_db.Population.values[0]*suspected_prcnt_pop).astype(int)])
                 print([threshConfrirm, data_db.Confirmed.values[-1],
-                       (data_db.Population.values[0]*suspected_prcnt_pop).astype(int), round(active_ratio,2)])
+                       (data_db.Population.values[0]*suspected_prcnt_pop).astype(int), round(active_ratio, 2)])
             else:
                 s_0 = None
-                print([threshConfrirm, data_db.Confirmed.values[-1], round(active_ratio,2)])
+                print([threshConfrirm, data_db.Confirmed.values[-1], round(active_ratio, 2)])
             data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0, threshConfrirm=threshConfrirm)
             sir_annot = dict(xref='paper', yref='paper', x=0.25, y=0.95, align='left', font=dict(size=14), text=text)
             data['Date'] = data.index
@@ -598,6 +598,17 @@ for base_country in countries:
                 print('Last Try')
                 threshConfrirm = 1
                 data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0, threshConfrirm=threshConfrirm)
+                sir_annot = dict(xref='paper', yref='paper', x=0.25, y=0.95, align='left', font=dict(size=14),
+                                 text=text)
+                data['Date'] = data.index
+                data.Date = pd.to_datetime(data.Date)
+                with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"),
+                                       day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
+                    fsc1 = scatter_country_plot(data, fname=' - ' + base_country + ' - Prediction with SIR Algorithm ',
+                                                inputs=data.keys()[:-1], annotations=sir_annot,
+                                                day=day.strftime('%d/%m/%y'))
+                    f.write(fsc1.to_html(full_html=False, include_plotlyjs='cdn'))
+
             except Exception as e:
                 print(e)
                 print('Not executed Prediction with SIR Algorithm. May be some data are absent. '
