@@ -8,7 +8,7 @@ https://github.com/imdevskp
 https://www.kaggle.com/yamqwe/covid-19-status-israel
 
 """
-
+import sys
 import extract_who_data
 import time
 from Utils import *
@@ -27,6 +27,10 @@ else:
     # Extract Data from World Health Organisation (WHO)
     clean_db, world_population = extract_who_data.extract_data()
     first_plt = True
+
+stdoutOrigin = sys.stdout
+fout = open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), 'world_status_log.txt'), 'a')
+sys.stdout = MyWriter(sys.stdout, fout)
 
 clean_db['Date'] = pd.to_datetime(clean_db['Date'])
 
@@ -128,7 +132,7 @@ create_bars = first_plt
 if create_bars:
     case_groupby_bar(daily, world_population, groupby=['Date', 'State', 'Country'],
                      inputs=['Confirmed', 'Recovered', 'Deaths', 'Active'],
-                     threshould=[15000, 10000, 250, 10000])
+                     threshould=[50000, 50000, 50000, 50000])
 #############################################################################
 
 
@@ -290,3 +294,7 @@ if choisen_cases:
                                         fname='Countries', log=log, threshValues=threshValues,
                                         add_growth_rates=add_growth_rates)
                 f.write(fsc.to_html(full_html=False, include_plotlyjs='cdn'))
+
+fout.close()
+# sys.stdout.close()
+sys.stdout = stdoutOrigin

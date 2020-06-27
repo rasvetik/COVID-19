@@ -9,7 +9,8 @@ https://www.kaggle.com/yamqwe/covid-19-status-israel
 https://www.kaggle.com/vanshjatana/machine-learning-on-coronavirus
 https://www.lewuathe.com/covid-19-dynamics-with-sir-model.html
 """
-
+import random
+import sys
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -37,6 +38,11 @@ from scipy.integrate import solve_ivp
 from scipy.optimize import minimize
 from Utils import *
 
+# seed ###################
+seed = 1234
+np.random.seed(seed)
+##############################
+
 
 def extend_index(date, new_size):
     values = date.values
@@ -57,7 +63,7 @@ def extended_data(db, inputs, dates, prefix='Real'):
     return df
 
 
-def SIR_algo(data, predict_range=150, s_0=None, threshConfrirm=1, threshDays=None, debug_mode=None):
+def SIR_algo(data, predict_range=150, s_0=None, threshConfrirm=1, threshDays=None, active_ratio=0.11, debug_mode=None):
     # interactive site http://www.public.asu.edu/~hnesse/classes/sir.html
     # beta -  parameter controlling how much the disease can be transmitted through exposure.
     # gamma - parameter expressing how much the disease can be recovered in a specific period
@@ -81,7 +87,7 @@ def SIR_algo(data, predict_range=150, s_0=None, threshConfrirm=1, threshDays=Non
         l2 = np.sqrt(np.mean((solution.y[2] - recovered) ** 2))
         l3 = np.sqrt(np.mean((solution.y[3] - death) ** 2))
 
-        return alpha[0] * l1 + (1 - alpha[0] - alpha[1]) * l2 + alpha[1] * l3
+        return alpha[0] * l1 + np.max([0, 1 - alpha[0] - alpha[1] ]) * l2 + alpha[1] * l3
 
     def predict(data, beta, gamma, delta, active, recovered, death, s_0, i_0, r_0, d_0):
 
@@ -140,28 +146,39 @@ def SIR_algo(data, predict_range=150, s_0=None, threshConfrirm=1, threshDays=Non
     else:
         s_0 = (s_0 / factor)
 
-    alpha = [0.11, 0.225]
+    # alpha = [0.11, 0.225]
+    alpha = [0.11, np.min([0.75, np.max([0.14, round(active_ratio, 3)])])]
     print('Suspected, WeightActive, WeightDeath')
     print([s_0, alpha])
 
     try:
         optimal = minimize(loss, [0.001, 0.001, 0.001], args=(active, recovered, death, s_0, i_0, r_0, d_0, alpha),
                            method='L-BFGS-B', bounds=[(0.00000001, 0.8), (0.00000001, 0.8), (0.00000001, 0.6)],
-                           options={'maxls': 40, 'disp': debug_mode})
+                           options={'maxls': 30, 'disp': debug_mode})
         print(optimal)
+        if optimal.nit < 10 or ((round(1 / optimal.x[1]) < 13 or (1 / optimal.x[1]) > predict_range)
+                                and r_0 < 0.9*s_0) or optimal.fun > 500:
+            raise Exception('the parameters are not reliable')
+
     except Exception as exc:
         print(exc)
         try:
             optimal = minimize(loss, [0.001, 0.001, 0.001], args=(active, recovered, death, s_0, i_0, r_0, d_0, alpha),
                                method='L-BFGS-B', bounds=[(0.00000001, 1), (0.00000001, 1), (0.00000001, 0.6)],
-                               options={'eps': 1e-7, 'maxls': 40, 'disp': debug_mode})
+                               options={'eps': 1e-7, 'maxls': 30, 'disp': debug_mode})
             print(optimal)
+            if optimal.nit < 10 or ((round(1 / optimal.x[1]) < 14 or (1 / optimal.x[1]) > predict_range + 60)
+                                    and r_0 < 0.9*s_0) or optimal.fun > 600:
+                raise Exception('the parameters are not reliable')
         except Exception as exc:
             print(exc)
             optimal = minimize(loss, [0.01, 0.01, 0.01], args=(active, recovered, death, s_0, i_0, r_0, d_0, alpha),
                                method='L-BFGS-B', bounds=[(0.00000001, 1), (0.00000001, 1), (0.00000001, 0.6)],
-                               options={'eps': 1e-5, 'maxls': 40, 'disp': debug_mode})
+                               options={'eps': 1e-5, 'maxls': 30, 'disp': debug_mode})
             print(optimal)
+            if optimal.nit < 10 or ((round(1 / optimal.x[1]) < 15 or (1 / optimal.x[1]) > predict_range + 90)
+                                    and r_0 < 0.9*s_0) or optimal.fun > 700:
+                raise Exception('the parameters are not reliable')
 
     beta, gamma, delta = optimal.x
     dates, extended_active, extended_recovered, extended_death, prediction = \
@@ -187,7 +204,7 @@ def SIR_algo(data, predict_range=150, s_0=None, threshConfrirm=1, threshDays=Non
           % (country, beta, gamma, delta, (beta / gamma), (1 / gamma)))
 
     fig, ax = plt.subplots(figsize=(14, 9))
-    ax.set_title(out_text)
+    ax.set_title(out_text.replace('<br>', ', '))
     df.plot(ax=ax)
 
     save_string = cur_day + '_SIR_Prediction_' + country + '.png'
@@ -497,7 +514,7 @@ full_data_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y"), time.strftim
 world_pop_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y"), 'world_population_csv.csv')
 
 clean_db = pd.read_csv(full_data_file)
-# Remove Israel
+# Remove Israel to insert later at first place in the country list
 all_countries = clean_db[clean_db['Country'].str.contains('Israel') != True]
 all_countries = all_countries['Country'].unique()
 # Add world to the beginning
@@ -508,29 +525,36 @@ all_countries = np.insert(all_countries, 0, 'Israel')
 # Some countries
 some_countries = ['Israel', 'world', 'US', 'Russia', 'Brazil', 'Italy', 'Iran', 'Spain', 'France', 'Belgium',  'Sweden',
                   'Singapore', 'Switzerland', 'Turkey', 'Denmark', 'Germany', 'Austria', 'Australia', 'Japan', 'South Korea',
-                  'Portugal', 'Norway', 'Qatar', 'Iceland', 'Ireland', 'New Zealand', 'Panama', 'Estonia', 'Cyprus']
+                  'Portugal', 'Norway', 'Qatar', 'Iceland', 'New Zealand', 'Panama', 'Estonia', 'Cyprus']
 
-do_all = False
-some = True
+do_all = True
+some = False
 if do_all:
     countries = all_countries
 elif some:
     countries = some_countries
 else:
-    countries = ['Israel', 'world']
+    countries = ['Israel']#, 'world']
 # also the possibility for run if already some_countries were running or
 # are not relevant due to absent some data
 # Caution: In 'United Kingdom', 'Netherlands' the recovered data are absent
-remove_countries = ['United Kingdom', 'Netherlands', 'Taiwan*']
+# remove_countries = ['United Kingdom', 'Netherlands', 'Ireland']
+remove_countries = []
 countries = [item for item in countries if item not in remove_countries]
 
 # If prediction is not good the figure is shows (if flag activate) and not saved
 show_not_good_prediction = False
 
+stdoutOrigin = sys.stdout
+
 for base_country in countries:
     # For Example Israel
     # base_country = 'Israel'  # may be: 'world' or country name like 'Russia' from the complete_data.csv
+    fout = open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), 'learning_log.txt'), 'a')
+    sys.stdout = MyWriter(sys.stdout, fout)
+
     print(base_country)
+
     base_country_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y"), base_country + '_db.csv')
 
     if os.path.exists(base_country_file):
@@ -543,20 +567,23 @@ for base_country in countries:
 
         # Sort by Date
         daily = clean_db.sort_values(['Date', 'Country', 'State'])
-        base_db = country_analysis(clean_db, world_population, country=base_country, state='', plt=True, fromFirstConfirm=True)
+        base_db = country_analysis(clean_db, world_population, country=base_country, state='', plt=True,
+                                   fromFirstConfirm=True, num_days_for_rate=60)
+        if base_country[-1] == '*':
+            base_country = base_country[:-1]
+            base_db['Country'] = base_country
         base_db.to_csv(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), base_country + '_db.csv'), index=False)
 
     # range in days from threshold's Confirmed Cases
-    predict_range = 360
+    predict_range = 450
     # threshold according to number of days. how many days use in estimation. default - all days till current day
     threshDays = None
-
     ##################################################################################################
+
 
     # SIR
     do_SIR = True
     # threshold on Confirmed value (from which value to begin estimation)
-    threshConfrirm = int(base_db.Confirmed.values[-1] * 0.0075)
     # For SIR algo: Estimated percent of suspected population in %, for example 0.055%
     suspected_prcnt_pop = 0.05 / 100
 
@@ -569,21 +596,17 @@ for base_country in countries:
             # whether the number of suspected is estimated on % of population or according to current Confirmed value
             do_on_pop = False
             active_ratio = data_db.Active.values[-1] / data_db.Confirmed.values[-1]
-            if active_ratio < 0.45:
-                do_on_pop = False
-                threshConfrirm = int(base_db.Confirmed.values[-1] * 0.05)
-            elif active_ratio > 0.7:
-                do_on_pop = True
-                threshConfrirm = int(base_db.Confirmed.values[-1] * 0.001)
+            threshConfrirm = int(base_db.Confirmed.values[-1] * active_ratio * 0.01)
             if do_on_pop:
-                # there is estimation of 0.055% of population will be as suspected
+                # there is estimation of 0.05% of population will be as suspected
                 s_0 = np.max([data_db.Confirmed.values[-1], (data_db.Population.values[0]*suspected_prcnt_pop).astype(int)])
                 print([threshConfrirm, data_db.Confirmed.values[-1],
                        (data_db.Population.values[0]*suspected_prcnt_pop).astype(int), round(active_ratio, 2)])
             else:
                 s_0 = None
                 print([threshConfrirm, data_db.Confirmed.values[-1], round(active_ratio, 2)])
-            data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0, threshConfrirm=threshConfrirm)
+            data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0, threshConfrirm=threshConfrirm,
+                                        active_ratio=active_ratio)
             sir_annot = dict(xref='paper', yref='paper', x=0.25, y=0.95, align='left', font=dict(size=14), text=text)
             data['Date'] = data.index
             data.Date = pd.to_datetime(data.Date)
@@ -597,7 +620,8 @@ for base_country in countries:
             try:
                 print('Last Try')
                 threshConfrirm = 1
-                data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0, threshConfrirm=threshConfrirm)
+                data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0,
+                                            threshConfrirm=threshConfrirm, active_ratio=active_ratio)
                 sir_annot = dict(xref='paper', yref='paper', x=0.25, y=0.95, align='left', font=dict(size=14),
                                  text=text)
                 data['Date'] = data.index
@@ -613,6 +637,8 @@ for base_country in countries:
                 print(e)
                 print('Not executed Prediction with SIR Algorithm. May be some data are absent. '
                       'May be were some problems in data reporting')
+    fout.close()
+    sys.stdout = stdoutOrigin
 
     ##################################################################################################################
     # Prophet Algorithm
@@ -929,3 +955,4 @@ for base_country in countries:
             print('Not executed Prediction with Multi-layer Perceptron Regressor Algorithm')
 
     plt.close('all')
+

@@ -26,6 +26,19 @@ import time
 plt.style.use('dark_background')
 
 
+class MyWriter:
+    def __init__(self, *writers):
+        self.writers = writers
+
+    def write(self, text):
+        for w in self.writers:
+            w.write(text)
+
+    def flush(self):
+        for w in self.writers:
+            w.flush()
+
+
 def bar_country_plot(full_data, groupby='Date', inputs=['Confirmed', 'Active', 'Recovered', 'Deaths'],
                      fname='_cases_bars', log=False):
     # Confirmed vs Recovered and Death
@@ -310,8 +323,8 @@ def case_groupby_bar(full_data, world_population, groupby=['Date', 'State', 'Cou
 
 
 def scatter_country_plot(full_data, inputs=['Confirmed', 'Recovered', 'Deaths', 'Active'], base='Date', prefix='',
-                         fname=' Total Cases ', add_growth_rates=False, annotations=None, add_events_text=False,
-                         factor=1.0, mat_plt=False, day=''):
+                         fname=' Total Cases ', add_growth_rates=False, num_days_for_rate=14, annotations=None,
+                         add_events_text=False, factor=1.0, mat_plt=False, day=''):
 
     if not day:
         if isinstance(full_data.Date.max(), str):
@@ -386,16 +399,17 @@ def scatter_country_plot(full_data, inputs=['Confirmed', 'Recovered', 'Deaths', 
                 fig.add_trace(add_trace1, row=1, col=2)
 
             # estimation for two last weeks
-            vec = np.arange(np.max([1, len_rate-14]), len_rate)
-            last_week = (full_data[k][vec[-1]] - full_data[k][vec[0]]) / (full_data[base][vec[-1]] - full_data[base][vec[0]])
+            vec = np.arange(np.max([1, len_rate-num_days_for_rate]), len_rate)
+            last_week = (full_data[k][vec[-1]] - full_data[k][vec[0]]) \
+                        / np.max([1e-6, (full_data[base][vec[-1]] - full_data[base][vec[0]])])
             if not np.isinf(last_week) and last_week > 0:
                 bias = int(full_data[k][vec[-1]] - full_data[base][vec[-1]] * last_week)
                 grow_one_third = last_week * full_data[base] + bias * factor
                 add_trace2 = go.Scatter(x=full_data[base][round(len_rate*1/3):], y=grow_one_third[round(len_rate*1/3):],
                                         mode="lines", name='Linear estimation: ' + str(bias) + ' + '
                                                            + str(round(last_week, 3)) + '*' + base + '<br>'
-                                                           + str(round(last_week, 3)) + ' - estim on 2 last weeks from '
-                                                           + base,
+                                                           + str(round(last_week, 3)) + ' - estim on '
+                                                           + str(num_days_for_rate) + ' last days from ' + base,
                                         line=dict(dash="dash", width=3))
                 fig.add_trace(add_trace2, row=1, col=1)
                 fig.add_trace(add_trace2, row=1, col=2)
@@ -441,7 +455,7 @@ def scatter_country_plot(full_data, inputs=['Confirmed', 'Recovered', 'Deaths', 
 
 
 def country_analysis(clean_db, world_pop, country='China', state='Hubei', plt=False, fromFirstConfirm=False,
-                     events=None):
+                     events=None, num_days_for_rate=14):
     if isinstance(clean_db.Date.max(), str):
         day = datetime.datetime.strptime(clean_db.Date.max(), '%m%d%y').strftime('%d%m%y')
     else:
@@ -449,7 +463,7 @@ def country_analysis(clean_db, world_pop, country='China', state='Hubei', plt=Fa
 
     data = clean_db[clean_db['Country'] == country]
     data = data.sort_values(by='Date', ascending=1)
-    yesterday = data.Date.iloc[-2].strftime('%d.%m.%y')
+    today = data.Date.iloc[-1].strftime('%d.%m.%y')
     if state:
         data = data[data['State'] == state]
     elif (data.State.unique() == country).any():
@@ -504,8 +518,8 @@ def country_analysis(clean_db, world_pop, country='China', state='Hubei', plt=Fa
     print('\n', country)
     print('Mean Growth Rate for 3 last days : Confirmed %.2f%%, Deaths %.2f%%, Recovered %.2f%%'
           % (round((growth_rate-1)*100.0, 2), round((growth_death-1)*100.0, 2), round((growth_recovered-1)*100.0, 2)))
-    print('Yesterday\'s %s   [confirmed, death, recovered] :  %d, %d, %d ' % (yesterday, data['Confirmed'].iloc[-2],
-          data['Deaths'].iloc[-2], data['Recovered'].iloc[-2]))
+    print('Today\'s %s   [confirmed, death, recovered] :  %d, %d, %d ' % (today, data['Confirmed'].iloc[-1],
+          data['Deaths'].iloc[-1], data['Recovered'].iloc[-1]))
     print('Expected Tomorrow      [confirmed, death, recovered] :  %d, %d, %d ' %
           (expected_cnfrm, expected_dth, expected_rcv))
     #  logarithm of x to the given base, calculated as log(x)/log(base)
@@ -516,23 +530,29 @@ def country_analysis(clean_db, world_pop, country='China', state='Hubei', plt=Fa
                  text='Mean Growth Rate for 3 last days:  Confirmed ' + str(round((growth_rate-1)*100.0, 2))
                       + '%,  Deaths ' + str(round((growth_death-1)*100.0, 2)) + '%,  Recovered '
                       + str(round((growth_recovered-1)*100.0, 2))
-                      + '%<br>Yesterday\'s ' + str(yesterday) + '   [confirmed, death, recovered] :   '
-                      + str(data['Confirmed'].iloc[-2]) + '   ' + str(data['Deaths'].iloc[-2]) + '   '
-                      + str(data['Recovered'].iloc[-2].astype(int))
+                      + '%<br>Today\'s ' + str(today) + '   [confirmed, death, recovered] :   '
+                      + str(data['Confirmed'].iloc[-1]) + '   ' + str(data['Deaths'].iloc[-1]) + '   '
+                      + str(data['Recovered'].iloc[-1].astype(int))
                       + '<br>Expected Tomorrow     [confirmed, death, recovered] :   '
                       + str(expected_cnfrm) + '   ' + str(expected_dth) + '   ' + str(expected_rcv)
                       + '<br>Twice the number of cases given the current growth rate in   '
                       + str(prediction_cnfm) + '   ' + str(prediction_dth) + '   ' + str(prediction_rcv) + '  days')
     if plt:
-        with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day + '_' + country + '_Various_Cases .html'), 'a') as f:
+        if country[-1] == '*':
+            country = country[:-1]
+        with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day + '_' + country + '_Various_Cases.html'), 'a') as f:
             fsc1 = scatter_country_plot(data, add_events_text=add_event)
             fsc2 = scatter_country_plot(data, prefix='New', fname='Daily New Cases', add_events_text=add_event)
-            fsc3 = scatter_country_plot(data, prefix='NormPop', fname='Total Cases Normalised for 1M Population', add_events_text=add_event)
+            fsc3 = scatter_country_plot(data, prefix='NormPop', fname='Total Cases Normalised for 1M Population',
+                                        add_events_text=add_event)
             fsc4 = scatter_country_plot(data, inputs=['Deaths', 'Recovered', 'Active'], prefix='NormConfirm',
-                                        factor=100.0, add_events_text=add_event, fname='Normalised for Total Confirmed Cases - '
-                                                            'Probability to Case If infected by the virus (%)')
-            fsc5 = scatter_country_plot(data, prefix='Growth', add_events_text=add_event, fname='Growing rate in % a day', annotations=annot)
-            fsc6 = scatter_country_plot(data, inputs=['Deaths'], add_events_text=add_event, base='Recovered', add_growth_rates=True,
+                                        factor=100.0, add_events_text=add_event,
+                                        fname='Normalised for Total Confirmed Cases - '
+                                              'Probability to Case If infected by the virus (%)')
+            fsc5 = scatter_country_plot(data, prefix='Growth', add_events_text=add_event,
+                                        fname='Growing rate in % a day', annotations=annot)
+            fsc6 = scatter_country_plot(data, inputs=['Deaths'], add_events_text=add_event, base='Recovered',
+                                        add_growth_rates=True, num_days_for_rate=num_days_for_rate,
                                         fname='Cases Ratio: Deaths vs Recovered')
 
             f.write(fsc1.to_html(full_html=False, include_plotlyjs='cdn'))
@@ -553,7 +573,7 @@ def case_thresh_plot(full_data, threshDays=[10, 10], inputs=['Confirmed', 'Death
     else:
         day = full_data.Date.max().strftime('%d%m%y')
     countries = full_data.Country.unique()
-    yesterday = full_data.Date.iloc[-2].strftime('%d.%m.%y')
+    today = full_data.Date.iloc[-1].strftime('%d.%m.%y')
 
     title_string = full_data.Date.max().strftime('%d/%m/%y') + ' - ' + str(len(countries)) + ' ' + fname
     colors = plotly.colors.qualitative.Light24
@@ -631,7 +651,7 @@ def case_thresh_plot(full_data, threshDays=[10, 10], inputs=['Confirmed', 'Death
                 annot = dict(xref='paper', yref='paper', x=0.2 + cnt*0.55, y=0.87, align='left', font=dict(size=13),
                              text='Mean Growth Rate for 3 last days in ' + threshed_ref_db.Country.values[0] + ' :  '
                                   + str(round((growth_rate_mean - 1) * 100.0, 2))
-                                  + '%<br>Yesterday\'s ' + str(yesterday) + ' ' + inputs[cnt] + ':  ' + str(prev_value)
+                                  + '%<br>Today\'s ' + str(today) + ' ' + inputs[cnt] + ':  ' + str(prev_value)
                                   + '<br>Expected Tomorrow: ' + str(next_value)
                                   + '<br>Twice the number of cases given the current growth rate in  ' + str(gr_days)
                                   + ' days')
