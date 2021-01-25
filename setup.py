@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     install_requires=['pandas', 'opencv_python', 'opencv_contrib_python', 'matplotlib', 'sklearn', 'datetime', 'seaborn',
                       'plotly', 'statsmodels', 'wget', 'keras', 'tensorflow', 'folium', 'cython', 'pystan==2.17.1',
-                      'convertdate', 'fbprophet', 'pmdarima'],
+                      'convertdate', 'fbprophet', 'pmdarima', 'requests', 'bs4'],
     name='covid_19_analysis',
     version='1.0.0',
     description='ANALYSIS OF COVID-19 CORONAVIRUS PANDEMIC',

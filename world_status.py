@@ -10,9 +10,8 @@ https://www.kaggle.com/yamqwe/covid-19-status-israel
 """
 import sys
 import extract_who_data
-import time
 from Utils import *
-
+import time
 
 # Begin
 full_data_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y"), time.strftime("%d%m%Y") + 'complete_data.csv')
@@ -132,18 +131,22 @@ create_bars = first_plt
 if create_bars:
     case_groupby_bar(daily, world_population, groupby=['Date', 'State', 'Country'],
                      inputs=['Confirmed', 'Recovered', 'Deaths', 'Active'],
-                     threshould=[50000, 50000, 50000, 50000])
+                     threshould=[5000000, 2000000, 100000, 500000])
 #############################################################################
 
 
 # Israel
 base_country = 'Israel'
-dates = pd.to_datetime(['2020/03/10', '2020/03/15', '2020/03/18', '2020/04/26', '2020/04/28', '2020/04/29',
-                        '2020/05/03', '2020/05/07', '2020/05/27', '2020/05/28'], format='%Y/%m/%d')
-dates = dates.append(pd.date_range('2020/04/08', '2020/04/15'))
-event = ['Purim', 'SchoolClosed', 'LockdownBegins', 'LockdownEnds', 'MemorialDay', 'Independence', 'SchoolOpen',
-         'MarketOpen', 'PubsOpen', 'Shavuot'] + ['Pesah' for i in range(8)]
-Events = pd.DataFrame({'Date': dates, 'Event': event})
+israel_events_file = (os.path.join(os.getcwd(), 'israelWhatWasWasEng.xlsx'))
+if os.path.exists(israel_events_file):
+    Events = pd.read_excel(israel_events_file, sheet_name='israelWhatWasWas')
+else:
+    dates = pd.to_datetime(['2020/03/10', '2020/03/15', '2020/03/18', '2020/04/26', '2020/04/28', '2020/04/29',
+                            '2020/05/03', '2020/05/07', '2020/05/27', '2020/05/28'], format='%Y/%m/%d')
+    dates = dates.append(pd.date_range('2020/04/08', '2020/04/15'))
+    event = ['Purim', 'SchoolClosed', 'LockdownBegins', 'LockdownEnds', 'MemorialDay', 'Independence',
+             'SchoolOpen', 'MarketOpen', 'PubsOpen', 'Shavuot'] + ['Pesah' for i in range(8)]
+    Events = pd.DataFrame({'Date': dates, 'Event': event})
 
 israel_db = country_analysis(clean_db, world_population, country=base_country, state='', plt=first_plt, fromFirstConfirm=True, events=Events)
 israel_db.to_csv(os.path.join(os.getcwd(), base_country + '_db.csv'), index=False)
@@ -155,10 +158,10 @@ all_countries = daily['Country'].unique()
 # remove Liechtenstein which is without update
 current_date_countries = current_date_countries[current_date_countries['Country'].str.contains('Liechtenstein') != True]
 
-dth = current_date_countries[current_date_countries['Deaths / 1M pop'] > 0.85 * israel_db['NormPopDeaths'].max()]
-dth_countries = dth[dth['Deaths / 1M pop'] < 1.15 * israel_db['NormPopDeaths'].max()]['Country'].unique()
-pop = current_date_countries[current_date_countries.Population > 0.9 * israel_db.Population.max()]
-pop_countries = pop[pop.Population < 1.1 * israel_db.Population.max()]['Country'].unique()
+dth = current_date_countries[current_date_countries['Deaths / 1M pop'] > 0.75 * israel_db['NormPopDeaths'].max()]
+dth_countries = dth[dth['Deaths / 1M pop'] < 1.05 * israel_db['NormPopDeaths'].max()]['Country'].unique()
+pop = current_date_countries[current_date_countries.Population > 0.75 * israel_db.Population.max()]
+pop_countries = pop[pop.Population < 1.05 * israel_db.Population.max()]['Country'].unique()
 cnf = current_date_countries[current_date_countries['Confirmed / 1M pop'] > 0.85 * israel_db['NormPopConfirmed'].max()]
 cnf_countries = cnf[cnf['Confirmed / 1M pop'] < 1.15 * israel_db['NormPopConfirmed'].max()]['Country'].unique()
 
@@ -236,13 +239,13 @@ if create_plt:
                                         fname='Others Countries vs Israel', log=log,  threshValues=threshValues,
                                         add_growth_rates=add_growth_rates)
                 fsc3 = case_thresh_plot(cnfdb, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor,
-                                        fname='Countries with the same (15% +/-) Confirmed Case Values as in Israel',
+                                        fname='Countries with the -15%:15% Confirmed Case Values as in Israel',
                                         threshValues=threshValues, add_growth_rates=add_growth_rates)
                 fsc4 = case_thresh_plot(ddb, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor, log=log,
-                                        fname='Countries with the same (15% +/-) Deaths Case Values as in Israel',
+                                        fname='Countries with the -25%:5% Deaths Case Values as in Israel',
                                         threshValues=threshValues, add_growth_rates=add_growth_rates)
                 fsc5 = case_thresh_plot(pdb, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor, log=log,
-                                        fname='Countries with the same (10% +/-) Population as in Israel',
+                                        fname='Countries with the -25%:5% Population as in Israel',
                                         threshValues=threshValues, add_growth_rates=add_growth_rates)
                 f.write(fsc5.to_html(full_html=False, include_plotlyjs='cdn'))
                 f.write(fsc4.to_html(full_html=False, include_plotlyjs='cdn'))
@@ -261,7 +264,7 @@ if choisen_cases:
         cdb = pd.concat([cdb, curr], axis=0, sort=False, ignore_index=True)
 
     # Days
-    threshDays = [7, 7]
+    threshDays = [1, 1]
     # Value ( Default)
     threshValues = [1, 1]
     # Countries Cases Plot

@@ -21,11 +21,12 @@ import folium
 import plotly
 import os
 import time
-
+import matplotlib.dates as mdates
 
 plt.style.use('dark_background')
 
 
+# Write Log file
 class MyWriter:
     def __init__(self, *writers):
         self.writers = writers
@@ -39,6 +40,7 @@ class MyWriter:
             w.flush()
 
 
+# bar plot
 def bar_country_plot(full_data, groupby='Date', inputs=['Confirmed', 'Active', 'Recovered', 'Deaths'],
                      fname='_cases_bars', log=False):
     # Confirmed vs Recovered and Death
@@ -251,6 +253,7 @@ def create_map(data, world_pop, location=[31, 35]):
 ###################################################################################################
 
 
+# bar plot according to cases
 def case_groupby_bar(full_data, world_population, groupby=['Date', 'State', 'Country'],
                      inputs=['Confirmed', 'Recovered', 'Deaths', 'Active'], threshould=[10000, 1000, 100, 10000],
                      normalise=True, fname='_Cases_WorldData_Bars', factor=1e6):
@@ -322,6 +325,7 @@ def case_groupby_bar(full_data, world_population, groupby=['Date', 'State', 'Cou
 #################################################################################################
 
 
+# scatter plot
 def scatter_country_plot(full_data, inputs=['Confirmed', 'Recovered', 'Deaths', 'Active'], base='Date', prefix='',
                          fname=' Total Cases ', add_growth_rates=False, num_days_for_rate=14, annotations=None,
                          add_events_text=False, factor=1.0, mat_plt=False, day=''):
@@ -454,6 +458,7 @@ def scatter_country_plot(full_data, inputs=['Confirmed', 'Recovered', 'Deaths', 
 ###################################################################################################################
 
 
+# country analysis script
 def country_analysis(clean_db, world_pop, country='China', state='Hubei', plt=False, fromFirstConfirm=False,
                      events=None, num_days_for_rate=14):
     if isinstance(clean_db.Date.max(), str):
@@ -565,6 +570,7 @@ def country_analysis(clean_db, world_pop, country='China', state='Hubei', plt=Fa
 ###########################################################################################################
 
 
+# plot with threshoulds on cases
 def case_thresh_plot(full_data, threshDays=[10, 10], inputs=['Confirmed', 'Deaths'], prefix='', ref_cntry='Israel',
                      base='Date', factor=1.0, fname=' Corona virus situation since the ', annotations=[], log=False,
                      add_growth_rates=False, threshValues=[1, 1]):
@@ -699,6 +705,7 @@ def case_thresh_plot(full_data, threshDays=[10, 10], inputs=['Confirmed', 'Death
 ###################################################################################################################
 
 
+# line plot
 def line_country_plot(full_data, inputs=['Confirmed', 'Recovered', 'Deaths', 'Active'], base='Date', prefixes=[''],
                          fname=' Total Cases ', add_growth_rates=False, annotations=None, add_events_text=False,
                          factor=1.0, mat_plt=False, day=''):
@@ -801,6 +808,34 @@ def line_country_plot(full_data, inputs=['Confirmed', 'Recovered', 'Deaths', 'Ac
     fig.update_layout(template='plotly_dark', hovermode="x", title=title_string,
                       yaxis=dict(title=fname), xaxis=dict(title=base), yaxis2=dict(title=fname, type='log'),
                       xaxis2=dict(title=base))
+
+    if mat_plt:
+        fig_mat, ax = plt.subplots(figsize=(8, 6))
+        colors = ['blue', 'green', 'yellow', 'magenta', 'cyan', 'red', 'black']
+        max_values = []
+        for cnt in range(len(inputs)):
+            case_k = inputs[cnt]
+            k = prefix + case_k
+            full_data[k] = full_data[k].fillna(0)
+            ax = sns.scatterplot(x=base, y=k, data=full_data, color=colors[cnt])
+            plt.plot(full_data[base], full_data[k], zorder=1, color=colors[cnt], label=k)
+            if not np.isinf(max(full_data[k])):
+                max_values.append(max(full_data[k]))
+        ax.set_xlim([full_data['Date'].iloc[0],  full_data['Date'].iloc[-1] + datetime.timedelta(days=1)])
+
+        if max(full_data[prefix + inputs[0]]) > 1:
+            max_value = max(max_values) + np.diff(full_data[k]).max()
+            min_value = -1
+        else:
+            max_value = max(max_values) + np.diff(full_data[k]).max()
+            min_value = 0
+        ax.set_ylim([min_value, max_value])
+        plt.legend(frameon=True, fontsize=12)
+        plt.grid()
+        plt.ylabel(fname)
+        plt.title(title_string, fontsize=16)
+        fig_mat.autofmt_xdate()
+        plt.savefig(os.path.join(os.getcwd(), save_string))
 
     return fig
 ###################################################################################################################

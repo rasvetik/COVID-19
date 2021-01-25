@@ -77,6 +77,8 @@ def extract_data(filename=None, world_pop_file=(os.path.join(os.getcwd(), 'world
         # Cleaning Data
         # removing canada's recovered values
         cur_file = cur_file[cur_file['State'].str.contains('Recovered') != True]
+        # removing Repatriated Travellers's values in Canada
+        cur_file = cur_file[cur_file['State'].str.contains('Repatriated Travellers') != True]
         # removing Diamond Princess's values in Canada
         cur_file = cur_file[cur_file['State'].str.contains('Diamond Princess') != True]
         # removing Diamond Princess ship
