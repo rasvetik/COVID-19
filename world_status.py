@@ -80,6 +80,7 @@ for k in inputs:
     latest_day_status.loc[2, k] = max_cur['Country'].values[0]
     latest_day_status.loc[3, k] = growth_cur[k].values[0].astype(int)
     latest_day_status.loc[4, k] = growth_cur['Country'].values[0]
+latest_day_status.index = ['Total', 'Current Max', 'Country Current Max', 'Current Max Growth ', 'Country Max Growth']
 print('Day Status ' + current_date.strftime('%d/%m/%y') + ':')
 print(latest_day_status)
 
@@ -131,7 +132,8 @@ create_bars = first_plt
 if create_bars:
     case_groupby_bar(daily, world_population, groupby=['Date', 'State', 'Country'],
                      inputs=['Confirmed', 'Recovered', 'Deaths', 'Active'],
-                     threshould=[5000000, 2000000, 100000, 500000])
+                     threshould=[int(latest_day_status.Confirmed[1]*0.75), int(latest_day_status.Recovered[1]*0.75),
+                                 int(latest_day_status.Deaths[1]*0.75), int(latest_day_status.Active[1]*0.75)])
 #############################################################################
 
 

@@ -10,23 +10,9 @@ https://www.kaggle.com/vanshjatana/machine-learning-on-coronavirus
 https://www.lewuathe.com/covid-19-dynamics-with-sir-model.html
 """
 
+
 import sys
 from datetime import date, timedelta
-from sklearn.cluster import KMeans
-from fbprophet import Prophet
-from fbprophet.plot import plot_plotly, add_changepoints_to_plot
-from statsmodels.tsa.arima_model import ARIMA
-from pandas.plotting import autocorrelation_plot
-from pmdarima import auto_arima
-from sklearn.metrics import mean_squared_error
-from statsmodels.tools.eval_measures import rmse
-import statsmodels.api as sm
-from keras.models import Sequential
-from keras.layers import LSTM, Dense
-from keras.layers import Dropout
-from sklearn.preprocessing import MinMaxScaler, RobustScaler, Normalizer, StandardScaler
-from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator
-from sklearn.neural_network import MLPRegressor
 import time
 import os
 import numpy as np
@@ -36,6 +22,37 @@ from scipy.integrate import solve_ivp
 from scipy.optimize import minimize
 from Utils import *
 from scipy.signal import argrelextrema
+
+
+# Run following algos for learning and prediction
+do_SIR = True
+do_prophet = False
+do_ARIMA = False
+do_LSTM = False
+do_reg = False
+
+
+if do_prophet:
+    from fbprophet import Prophet
+    from fbprophet.plot import plot_plotly, add_changepoints_to_plot
+if do_ARIMA:
+    from statsmodels.tsa.arima_model import ARIMA
+    from pandas.plotting import autocorrelation_plot
+    from pmdarima import auto_arima
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import mean_squared_error
+    from statsmodels.tools.eval_measures import rmse
+    from statsmodels.tools.eval_measures import rmse
+    import statsmodels.api as sm
+if do_LSTM:
+    from keras.models import Sequential
+    from keras.layers import LSTM, Dense
+    from keras.layers import Dropout
+    from sklearn.preprocessing import MinMaxScaler, RobustScaler, Normalizer, StandardScaler
+    from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator
+if do_reg:
+    from sklearn.neural_network import MLPRegressor
+
 
 # seed ###################
 seed = 1234
@@ -130,9 +147,10 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
     # interactive site http://www.public.asu.edu/~hnesse/classes/sir.html
     # beta -  parameter controlling how much the disease can be transmitted through exposure.
     # gamma - parameter expressing how much the disease can be recovered in a specific period
-    # r0 - basic reproduction number, the average number of people infected from one to other person betta/gamma
+    # delta - "killing" parameter, parameter expressing the disease fatal
+    # R0 - basic reproduction number, the average number of people infected from one to other person betta/gamma
     # days - the average days to recover from infectious 1/gamma
-    # epsilon- the D/R ratio describing whether overload of the health care system is approaching
+    # epsilon- the D/R ratio describing whether overload of the health care system is approaching (delta/gamma)
     # delta_0 - learning cost of the system
 
     def loss(point, active, recovered, death,  s_0, i_0, r_0, d_0, alpha):
@@ -186,6 +204,8 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
         data = data.loc[:threshDays, :]
     cur_day = data.Date.max().strftime('%d%m%y')
 
+    run_daily = False
+
     # Factor to boost the calculation if the values are big
     factor = calc_factor(data)
 
@@ -224,11 +244,12 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
         active = (data['Active'][begin_idx:idx_min_after_max[cnt]] / factor).reset_index().Active
         confirmed = (data['Confirmed'][begin_idx:idx_min_after_max[cnt]]).reset_index().Confirmed
         dataDate = data['Date'][begin_idx:idx_min_after_max[cnt]]
+
         try:
             country = data.Country.values[0]
         except:
             country = 'world'
-
+        # cumulative
         i_0 = active.values[0]
         r_0 = recovered.values[0]
         d_0 = death.values[0]
@@ -236,6 +257,30 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
             s_0 = (confirmed.values[-1] / factor)
         else:
             s_0 = (s_0 / factor)
+
+        if run_daily:
+            # daily
+            daily_recovered = (data['NewRecovered'][begin_idx:idx_min_after_max[cnt]]).reset_index().NewRecovered.clip(0)
+            daily_death = (data['NewDeaths'][begin_idx:idx_min_after_max[cnt]]).reset_index().NewDeaths.clip(0)
+            daily_active = (data['NewActive'][begin_idx:idx_min_after_max[cnt]]).reset_index().NewActive.clip(0)
+            daily_confirmed = (data['NewConfirmed'][begin_idx:idx_min_after_max[cnt]]).reset_index().NewConfirmed.clip(0)
+            di_0 = daily_active.values[0]
+            dr_0 = daily_recovered.values[0]
+            dd_0 = daily_death.values[0]
+            ds_0 = daily_confirmed.values[0]
+            try:
+                daily_optimal = minimize(loss, [0.001, 0.001, 0.001], args=(daily_active, daily_recovered, daily_death,
+                                                                            ds_0, di_0, dr_0, dd_0, [0.45, 0.05]),
+                                         method='L-BFGS-B', bounds=[(0.00000001, 1), (0.00000001, 1), (0.00000001, 1)],
+                                         options={'eps': 1e-5, 'maxls': 40, 'disp': debug_mode})
+                print(daily_optimal)
+                # R0 - basic reproduction number, the average number of people infected from one to other person betta/gamma
+                R0 = daily_optimal.x[0]/(daily_optimal.x[1] + daily_optimal.x[2])
+            except Exception as exc:
+                print(exc)
+                R0 = None
+        else:
+            R0 = None
 
         alpha = [0.11, np.min([0.75, np.max([0.44, round(active_ratio, 3)])])]
         print('Suspected, WeightActive, WeightDeath')
@@ -246,6 +291,7 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
                                method='L-BFGS-B', bounds=[(0.00000001, 0.8), (0.00000001, 0.8), (0.00000001, 0.6)],
                                options={'maxls': 40, 'disp': debug_mode})
             print(optimal)
+
             if optimal.nit < 10 or ((round(1 / optimal.x[1]) < 13 or (1 / optimal.x[1]) > predict_range)
                                     and active_ratio > 0.075) or optimal.fun > 500:
                 raise Exception('the parameters are not reliable')
@@ -285,12 +331,15 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
         df = df[df['Active Predicted'] >= 1]
         Dsir = Dsir + int((1 / gamma))
         dday = (data['Date'][idx_min_after_max[cnt]-2] + timedelta(1/gamma)).strftime('%d/%m/%y')
+        # R0 - basic reproduction number, the average number of people infected from one to other person betta/gamma
+        if R0 is None:
+            R0 = beta / (gamma + delta)
         # epsilon- the D/R ratio describing whether overload of the health care system is approaching
         epsilon.append(delta / gamma)
         # delta_0 - learning cost of the system
         delta_0.append(epsilon[cnt] * r_0 * factor - d_0 * factor)
-        print('country=%s, wave=%d, beta=%.8f, gamma=%.8f, delta=%.8f, r_0=%.8f, d_0=%8.2f, epsilon=%.8f, days_to_recovery=%.1f'
-              % (country, cnt+1, beta, gamma, delta, (beta / gamma), delta_0[cnt], epsilon[cnt], (1 / gamma)))
+        print('country=%s, wave=%d, beta=%.8f, gamma=%.8f, delta=%.8f, R_0=%.8f, d_0=%8.2f, epsilon=%.8f, days_to_recovery=%.1f'
+              % (country, cnt+1, beta, gamma, delta, R0, delta_0[cnt], epsilon[cnt], (1 / gamma)))
 
         if cnt == 0:
             full_data = df
@@ -676,7 +725,7 @@ some_countries = ['Israel', 'world', 'US', 'Russia', 'Brazil', 'Italy', 'Iran', 
                   'Singapore', 'Switzerland', 'Turkey', 'Denmark', 'Germany', 'Austria', 'Australia', 'Japan', 'South Korea',
                   'Portugal', 'Norway', 'Qatar', 'Iceland', 'New Zealand', 'Panama', 'Estonia', 'Cyprus']
 
-do_all = True
+do_all = False
 some = False
 if do_all:
     countries = all_countries
@@ -729,7 +778,7 @@ for base_country in countries:
     threshDays = None
 
     # SIR
-    do_SIR = True
+    # do_SIR = True
     # threshold on Confirmed value (from which value to begin estimation)
     # For SIR algo: Estimated percent of suspected population in %, for example 0.055%
     suspected_prcnt_pop = 0.05 / 100
@@ -792,7 +841,7 @@ for base_country in countries:
 
     ##################################################################################################################
     # Prophet Algorithm
-    do_prophet = True
+    # do_prophet = False
     # threshold on Confirmed value (from which value to begin estimation)
     threshConfrirm = 1
     if do_prophet:
@@ -877,7 +926,7 @@ for base_country in countries:
 
     ###############################################################################################################
     # Arima Algo - Autoregressive Integrated Moving Average Model
-    do_ARIMA = True
+    # do_ARIMA = False
     threshConfrirm = int(base_db.Confirmed.values[-1] * 0.01)
     if do_ARIMA:
         print('Prediction with ARIMA Algorithm')
@@ -952,7 +1001,7 @@ for base_country in countries:
 
     #########################################################################################
     # LSTM - take a time to solve
-    do_LSTM = True
+    # do_LSTM = False
     # threshold on Confirmed value (from which value to begin estimation)
     threshConfrirm = int(base_db.Confirmed.values[-1] * 0.001)
     if do_LSTM:
@@ -1030,7 +1079,7 @@ for base_country in countries:
 
     ################################################################################################
     # Regression
-    do_reg = True
+    # do_reg = False
     threshConfrirm = 1
     if do_reg:
         print('Prediction with Multi-layer Perceptron Regressor Algorithm')

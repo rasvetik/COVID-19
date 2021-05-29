@@ -26,9 +26,11 @@ import warnings
 plt.style.use('default')
 warnings.filterwarnings("ignore")
 
+line_statistic_plot_log=None
+line_statistic_plot_fix_date=False
 
 # data line plot
-def line_statistic_plot(db, base, fields, title, ylabel, legend, text, save_name, log=None):
+def line_statistic_plot(db, base, fields, title, ylabel, legend, text, save_name, log=None, fix_date=False):
     f, ax = plt.subplots(figsize=(18, 6))
     date = db[base]
     date = pd.to_datetime(date)
@@ -43,8 +45,14 @@ def line_statistic_plot(db, base, fields, title, ylabel, legend, text, save_name
     plt.title(title, fontsize=20)
     plt.ylabel(ylabel, fontsize=16)
     plt.legend(legend, fontsize=14)
-    datemin = date.min()
-    datemax = date.max()
+
+    if fix_date:
+        datemin = pd.to_datetime('2020-03-01')
+        datemax = pd.to_datetime('2021-03-01')
+    else:
+        datemin = date.min()
+        datemax = date.max()
+
     ax.set_xlim(datemin, datemax)
     ax.grid(True)
     # rotate and align the tick labels so they look better
@@ -82,7 +90,8 @@ stdoutOrigin = sys.stdout
 fout = open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), 'israel_status_log.txt'), 'a')
 sys.stdout = MyWriter(sys.stdout, fout)
 
-text = pd.date_range('2020-04-01', '2021-01-01', freq="MS")
+text = None
+# text = pd.date_range('2020-04-01', '2021-04-01', freq="MS")
 
 # Isolation
 isolated = pd.read_csv(files_db.current_file_path[files_db.current_file_name.str.find('isolation').values.argmax()])
@@ -105,19 +114,19 @@ iso2 = isolated.new_from_abroad.astype(int).sum()
 title = 'Israel (data from ' + isolated[base].max().strftime('%d/%m/%y') + ') - isolated persons, total ' + str(iso1+iso2) + ', now ' +\
         str(isolated.isolated_today_contact_with_confirmed.iloc[-1] + isolated.isolated_today_abroad.iloc[-1])
 ylabel = 'Number of individuals'
-legend = ('isolated due to contact with confirmed, total ' + str(iso1), 'isolated due to coming from abroad, total ' + str(iso2))
+legend = ('Isolated due to contact with confirmed, total ' + str(iso1), 'Isolated due to arrived from abroad, total ' + str(iso2))
 save_name = 'israelIsolatedPersons_'
 fields = ['isolated_today_contact_with_confirmed', 'isolated_today_abroad']
 
 # plot Isolated Total
-line_statistic_plot(isolated, base, fields, title, ylabel, legend, text, save_name)
+line_statistic_plot(isolated, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 
 # plot isolated daily
 fields = ['new_contact_with_confirmed', 'new_from_abroad']
 save_name = 'israelIsolatedPersons_Daily_'
 title = 'Israel (data from ' + isolated[base].max().strftime('%d/%m/%y') + ') - Daily isolated persons, total ' + str(iso1+iso2) + ', now ' +\
         str(isolated.isolated_today_contact_with_confirmed.iloc[-1] + isolated.isolated_today_abroad.iloc[-1])
-line_statistic_plot(isolated, base, fields, title, ylabel, legend, text, save_name)
+line_statistic_plot(isolated, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 del isolated
 ###################################################################################################################
 
@@ -141,16 +150,18 @@ ylabel = 'Number of individuals'
 title = 'Israel - medical staff confirmed (data from ' + coronaMediaclStaffD[base].max().strftime('%d/%m/%y') + ')'
 save_name = 'coronaMediaclStaffConfirmed_'
 fields = ['confirmed_cases_physicians', 'confirmed_cases_nurses', 'confirmed_cases_other_healthcare_workers']
-legend = fields
+legend = ['Confirmed physicians', 'Confirmed nurses', 'Confirmed other healthcare workers']
+
 # plot coronaMediaclStaffConfirmed Total
-line_statistic_plot(coronaMediaclStaffD, base, fields, title, ylabel, legend, text, save_name)
+line_statistic_plot(coronaMediaclStaffD, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 
 # plot coronaMediaclStaffIsolated daily
 title = 'Israel - medical staff in isolation (data from ' + coronaMediaclStaffD[base].max().strftime('%d/%m/%y') + ')'
 fields = ['isolated_physicians', 'isolated_nurses', 'isolated_other_healthcare_workers']
-legend = fields
+legend = ['Isolated physicians', 'Isolated nurses', 'Isolated other healthcare workers']
+
 save_name = 'coronaMediaclStaffIsolated_'
-line_statistic_plot(coronaMediaclStaffD, base, fields, title, ylabel, legend, text, save_name)
+line_statistic_plot(coronaMediaclStaffD, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 del coronaMediaclStaffD
 ###################################################################################################################
 
@@ -174,44 +185,44 @@ ylabel = 'Number of individuals [persons]'
 title = 'Israel - Critical conditions (data from ' + hospitalization[base].max().strftime('%d/%m/%y') + ')'
 save_name = 'israelHospitalized_'
 fields = ['מונשמים', 'חולים קשה', 'מאושפזים']
-legend = ('Respiratorsed', 'Seriously ill', 'Hospitalized')
+legend = ('Ventilated patients', 'Seriously ill', 'Hospitalized')
 # plot israelHospitalized Total
-line_statistic_plot(hospitalization, base, fields, title, ylabel, legend, text, save_name)
+line_statistic_plot(hospitalization, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 
 title = 'Israel - Critical conditions mean Age division (data from ' + hospitalization[base].max().strftime('%d/%m/%y') + ')'
 save_name = 'israelHospitalizedInAge_'
 fields = ['גיל ממוצע מונשמים', 'גיל ממוצע חולים קשה', 'גיל ממוצע מאושפזים']
-legend = ('Respiratorsed', 'Seriously ill', 'Hospitalized')
+legend = ('Ventilated patients', 'Seriously ill', 'Hospitalized')
 # plot israelHospitalizeInAgeTotal
-line_statistic_plot(hospitalization, base, fields, title, ylabel, legend, text, save_name)
+line_statistic_plot(hospitalization, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 
 title = 'Israel - Critical conditions percentage of Women (data from ' + hospitalization[base].max().strftime('%d/%m/%y') + ')'
 save_name = 'israelHospitalizedInWomens_'
 fields = ['אחוז נשים מונשמות', 'אחוז נשים חולות קשה', 'אחוז נשים מאושפזות']
-legend = ('Respiratorsed', 'Seriously ill', 'Hospitalized')
+legend = ('Ventilated patients', 'Seriously ill', 'Hospitalized')
 # plot israelHospitalizeInAgeTotal
-line_statistic_plot(hospitalization, base, fields, title, ylabel, legend, text, save_name)
+line_statistic_plot(hospitalization, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 
 # plot israel Ill
 title = 'Israel - ill conditions (data from ' + hospitalization[base].max().strftime('%d/%m/%y') + ')'
 fields = ['חולים קל', 'חולים בינוני', 'חולים קשה']
 legend = ('Light ill', 'Mild ill', 'Seriously ill')
 save_name = 'illConditions_'
-line_statistic_plot(hospitalization, base, fields, title, ylabel, legend, text, save_name)
+line_statistic_plot(hospitalization, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 
 # plot israel mean Age Ill
 title = 'Israel - ill conditions mean Age division (data from ' + hospitalization[base].max().strftime('%d/%m/%y') + ')'
 fields = ['גיל ממוצע חולים קל', 'גיל ממוצע חולים בינוני', 'גיל ממוצע חולים קשה']
 legend = ('Light ill', 'Mild ill', 'Seriously ill')
 save_name = 'illConditionsInAge_'
-line_statistic_plot(hospitalization, base, fields, title, ylabel, legend, text, save_name)
+line_statistic_plot(hospitalization, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 
 # plot israel Women Percentage Ill
 title = 'Israel - ill conditions percentage of Women (data from ' + hospitalization[base].max().strftime('%d/%m/%y') + ')'
 fields = ['אחוז נשים חולות קל', 'אחוז נשים חולות בינוני', 'אחוז נשים חולות קשה']
 legend = ('Light ill', 'Middle ill', 'Seriously ill')
 save_name = 'illConditionsInWomens_'
-line_statistic_plot(hospitalization, base, fields, title, ylabel, legend, text, save_name)
+line_statistic_plot(hospitalization, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 del hospitalization
 ###################################################################################################################
 
@@ -239,7 +250,11 @@ plt.text(recoveredMeanTime, hh[0][int(recoveredMeanTime)], ' Recovered Mean Time
 plt.grid()
 plt.xlabel('Time to recovered [days]', fontsize=16)
 plt.ylabel('Number of individuals [persons]', fontsize=16)
-plt.title('Israel - Time to recovered. Num of persons ' + str(int(hh[0].sum())), fontsize=16)
+try:
+    data_from = pd.to_datetime(str(files_db.last_update[id]))
+    plt.title('Israel - Time to recovered. Num of persons ' + str(int(hh[0].sum())) + ' (data from ' + data_from.strftime('%d/%m/%y') + ')', fontsize=16)
+except:
+    plt.title('Israel - Time to recovered. Num of persons ' + str(int(hh[0].sum())) + ' (data from ' + str(files_db.last_update[id]) + ')', fontsize=16)
 save_string = 'israelRecovered_' + str(files_db.last_update[id]) + '.png'
 f.savefig(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), save_string))
 del recovered
@@ -268,8 +283,12 @@ plt.text(deceasedMeanTime, hh[0][int(deceasedMeanTime)], ' Deceased Mean Time: '
 plt.grid()
 plt.xlabel('Time to deceased [days]', fontsize=16)
 plt.ylabel('Number of individuals [persons]', fontsize=16)
-plt.title('Israel - Time to deceased. Num of persons' + str(int(hh[0].sum())) + '. Num of Ventilated' +
-          str(int(deceased.Ventilated.sum())), fontsize=16)
+try:
+    plt.title('Israel - Time to deceased. Num of persons ' + str(int(hh[0].sum())) + '. Num of Ventilated ' +
+          str(int(deceased.Ventilated.sum())) + ' (data from ' + data_from.strftime('%d/%m/%y') + ')', fontsize=16)
+except:
+    plt.title('Israel - Time to deceased. Num of persons ' + str(int(hh[0].sum())) + '. Num of Ventilated ' +
+          str(int(deceased.Ventilated.sum())) + ' (data from ' + str(files_db.last_update[id]) + ')', fontsize=16)    
 save_string = 'israelDeceased_' + str(files_db.last_update[id]) + '.png'
 f.savefig(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), save_string))
 del deceased
@@ -282,7 +301,7 @@ lab_tests = pd.read_csv(files_db.current_file_path[files_db.current_file_name.st
 id = files_db.current_file_name.str.find('lab_tests').values.argmax()
 print([files_db.last_update[id], files_db.current_file_name[id], files_db.name[id]])
 base = 'result_date'
-lab_tests.loc[lab_tests['result_date'].isna() != False, 'result_date'] = lab_tests.loc[lab_tests['result_date'].isna() != False, 'test_date']
+# lab_tests.loc[lab_tests['result_date'].isna() != False, 'result_date'] = lab_tests.loc[lab_tests['result_date'].isna() != False, 'test_date']
 lab_tests = lab_tests[lab_tests['result_date'].isna() != True]
 N = len(lab_tests.corona_result)
 lab_tests[base] = pd.to_datetime(lab_tests[base])
@@ -336,11 +355,11 @@ legend = ['Positive First test, total ' + str(int(lab_data.PositiveFirst.sum()))
           'Other not a First test, total ' + str(int(lab_data.OtherNotFirst.sum())), ]
 
 # plot Test Performed Total
-line_statistic_plot(lab_data, base, fields, title, ylabel, legend, text, save_name)
+line_statistic_plot(lab_data, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 
 # plot Test Performed Total Log
 save_name =  'israelTestPerformed_Logy_'
-line_statistic_plot(lab_data, base, fields, title, ylabel, legend, text, save_name, True)
+line_statistic_plot(lab_data, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 del lab_tests
 ###################################################################################################################
 
@@ -384,7 +403,7 @@ pos_indicate = pd.concat([dateList, pd.DataFrame(Abroad, columns=[fields[0]]),
                       pd.DataFrame(Contact, columns=[fields[1]]),
                       pd.DataFrame(Other, columns=[fields[2]])],
                       axis=1, sort=False)
-line_statistic_plot(pos_indicate, 'Date', fields, title, ylabel, legend, text, save_name)
+line_statistic_plot(pos_indicate, 'Date', fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 del posindicate
 
 # Run according to test indication results
@@ -406,10 +425,10 @@ for ctest in range(len(possible_results)):
     save_name = 'israel' + result + 'TestSymptoms_'
     ylabel = 'Symptoms'
     # usual plot
-    line_statistic_plot(pos_synd_every, base, fields, title, ylabel, legend, text, save_name)
+    line_statistic_plot(pos_synd_every, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
     # log plot
     save_name = 'israel' + result + 'TestSymptoms_Logy_'
-    line_statistic_plot(pos_synd_every, base, fields, title, ylabel, legend, text, save_name, True)
+    line_statistic_plot(pos_synd_every, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 
     # Number of positive syndrome statistic per day
     PosSyindrome = individuals.loc[individuals['corona_result'].str.contains(test) != False, ['test_date', 'symptoms']].reset_index()
@@ -440,10 +459,10 @@ for ctest in range(len(possible_results)):
     save_name = 'israelQuantitative' + result + 'TestSymptoms_'
     ylabel = 'Number of Symptoms'
     # usual plot
-    line_statistic_plot(pos_syndrome, 'Date', fields, title, ylabel, legend, text, save_name)
+    line_statistic_plot(pos_syndrome, 'Date', fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
     # log plot
     save_name = 'israelQuantitative' + result + 'TestSymptoms_Logy_'
-    line_statistic_plot(pos_syndrome, 'Date', fields, title, ylabel, legend, text, save_name, True)
+    line_statistic_plot(pos_syndrome, 'Date', fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 
 ###################################################################################################################
 
@@ -474,7 +493,7 @@ try:
     fields = ['NewConfirmed', 'PositiveFirst', 'Individ']
     title = 'Israel Symptoms for ' + result + ' Result (data from ' + dateList.Date.max().strftime('%d/%m/%y') + ')'
     base = 'Date'
-    line_statistic_plot(compare_db, base, fields, title, ylabel, legend, text, save_name)
+    line_statistic_plot(compare_db, base, fields, title, ylabel, legend, text, save_name,line_statistic_plot_log,line_statistic_plot_fix_date)
 except:
     print('The file israel_db.csv is not loaded')
 ###################################################################################################################
@@ -494,15 +513,29 @@ df.to_csv(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), 'IsraelCitiesCoordi
 geographic = pd.read_csv(files_db.current_file_path[files_db.current_file_name.str.find('geographic').values.argmax()])
 # new_recoveries_on_date	accumulated_hospitalized	new_hospitalized_on_date
 # accumulated_deaths	new_deaths_on_date	accumulated_diagnostic_tests
-cities = pd.read_csv(files_db.current_file_path[files_db.current_file_name.str.find('city').values.argmax()])
+# there are two files with city in name:
+# 12: corona_city_table_ver_0055.csv
+# 15: vaccinated_city_table_ver_0013.csv
+# which one TODO?
+# cities = pd.read_csv(files_db.current_file_path[files_db.current_file_name.str.find('city')])
 # City_Name	City_Code	Date	Cumulative_verified_cases	Cumulated_recovered	Cumulated_deaths
 # Cumulated_number_of_tests	Cumulated_number_of_diagnostic_tests	Cumulated_vaccinated
 
 geo = geographic.groupby(['town_code'],  as_index=False)
-city = cities.groupby(['City_Code'],  as_index=False)
+# city = cities.groupby(['City_Code'],  as_index=False)
 
 # TODO some calculations
 # TODO create map with data
+
+# City_Color = NewConfirmed * PositiveTestPercent * sickness_growth_rate
+# red    = [7.5 10.0]
+# orange = [6.0 7.5]
+# yellow = [4.5 6.0]
+# green  = [0.0 4.5]
+
+# R coefficient according Cori et al: https://academic.oup.com/aje/article/178/9/1505/89262
+# r(t) = NewConfirmed(t) / (NewConfirmed(t-3)*G(t-3) + ... + NewConfirmed(t+3)*G(t+3))
+# G - gamma distribution with mean=4.5 and std=3.5 - generation interval distribution
 ###################################################################################################################
 
 plt.close('all')
