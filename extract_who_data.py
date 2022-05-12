@@ -112,8 +112,8 @@ def extract_data(filename=None, world_pop_file=(os.path.join(os.getcwd(), 'world
         if k > 1 and db_can[0]['State'].unique().shape != can['State'].unique().shape:
             temp = db_can[0].copy()
             state_max_value = temp[temp[temp.columns[-1]] == temp[temp.columns[-1]].max()]['State']
-            temp.loc[:, 4:] = 0
-            temp.loc[temp['State'] == state_max_value.values[0], 4:] = can[can.columns[4:]].values
+            temp.iloc[:, 4:] = 0
+            temp.iloc[temp['State'] == state_max_value.values[0], 4:] = can[can.columns[4:]].values
             can = temp
         db_can.append(can)
 

@@ -17,8 +17,13 @@ def heb_month_to_eng(date):
     heb_month = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר', 'במאי']
     eng_month = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'May']
     dd = date.split(' ')
-    dd[1] = eng_month[heb_month.index(dd[1])]
-
+    t = dd[1] #month
+    for k in range(12):
+        if (heb_month[k] in t):
+            dd[1] = eng_month[k]
+            break
+    #dd[1] = eng_month[heb_month.index(dd[1])]
+    dd = dd[:3]
     return datetime.datetime.strptime(''.join(dd), '%d%B%Y').strftime('%d%m%y')
 
 
@@ -51,7 +56,11 @@ def extract_israel_data(desirable_formats=None):
                 other_format.remove(file_format)
                 link = data_locate_root[:-1] + resource.find_all('a', href=re.compile(other_format[0].swapcase()))[0].get('href')
 
-            cur_file = requests.get(link, headers=headers)
+            try:
+                cur_file = requests.get(link, headers=headers)
+            except:
+                cur_file = requests.get(link, headers=headers)
+
             current_file_name = link.split('/')[-1].replace('-', '_')  # .replace('xlsx', 'csv')
             print('Loading: ', current_file_name, name)
             parent_folder = os.path.join(os.getcwd(), time.strftime("%d%m%Y"))

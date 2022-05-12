@@ -17,6 +17,9 @@ import time
 full_data_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y"), time.strftime("%d%m%Y") + 'complete_data.csv')
 world_pop_file = os.path.join(os.getcwd(), time.strftime("%d%m%Y"), 'world_population_csv.csv')
 
+# To create all the Figures on the first run, enable the flag create_all_figures = True
+create_all_figures = False
+
 if os.path.exists(full_data_file):
     clean_db = pd.read_csv(full_data_file)
     world_population = pd.read_csv(world_pop_file)
@@ -25,7 +28,7 @@ else:
     os.makedirs(os.path.join(os.getcwd(), time.strftime("%d%m%Y")), exist_ok=True)
     # Extract Data from World Health Organisation (WHO)
     clean_db, world_population = extract_who_data.extract_data()
-    first_plt = True
+    first_plt = create_all_figures
 
 stdoutOrigin = sys.stdout
 fout = open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), 'world_status_log.txt'), 'a')
@@ -49,7 +52,7 @@ dbd = daily.groupby("Date")[inputs].sum().reset_index()
 dbd = growth_func(dbd, inputs, numDays=1, name='New', normalise=False)
 dbd = growth_func(dbd, inputs, numDays=1, name='Growth', normalise=True)
 dbd = normalise_func(dbd, inputs=['Deaths', 'Recovered', 'Active'], name='NormConfirm', normaliseTo='Confirmed',
-                      factor=1, toRound=True)
+                     factor=1, toRound=True)
 if first_plt:
     fdbd1 = scatter_country_plot(dbd)
     fdbd2 = scatter_country_plot(dbd, prefix='New', fname=' Daily New Cases')
@@ -59,7 +62,8 @@ if first_plt:
                                                      'Probability to Case If infected by the virus (%)')
     fdbd5 = scatter_country_plot(dbd, inputs=['Deaths'], base='Recovered', add_growth_rates=True,
                                  fname=' Cases Ratio: Deaths vs Recovered')
-    with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), current_date.strftime('%d%m%y') + '_World_Various_Cases .html'), 'a') as f:
+    with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), current_date.strftime('%d%m%y')
+              + '_World_Various_Cases .html'), 'a') as f:
         f.write(fdbd1.to_html(full_html=False, include_plotlyjs='cdn'))
         f.write(fdbd2.to_html(full_html=False, include_plotlyjs='cdn'))
         f.write(fdbd3.to_html(full_html=False, include_plotlyjs='cdn'))
@@ -102,7 +106,7 @@ dbd.to_csv(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), 'world_db.csv'), i
 
 for k in inputs:
     current_date_countries[k + ' / 1M pop'] = (current_date_countries[k] * 1e6 /
-                                             current_date_countries['Population']).fillna(0).clip(0).astype(int)
+                                               current_date_countries['Population']).fillna(0).clip(0).astype(int)
 
 # World Daily Situation in Bars for countries since 1m population
 onem_current_date_countries = current_date_countries[current_date_countries['Population'] > 1e6]
@@ -150,114 +154,118 @@ else:
              'SchoolOpen', 'MarketOpen', 'PubsOpen', 'Shavuot'] + ['Pesah' for i in range(8)]
     Events = pd.DataFrame({'Date': dates, 'Event': event})
 
-israel_db = country_analysis(clean_db, world_population, country=base_country, state='', plt=first_plt, fromFirstConfirm=True, events=Events)
+israel_db = country_analysis(clean_db, world_population, country=base_country, state='', plt=first_plt,
+                             fromFirstConfirm=True, events=Events)
 israel_db.to_csv(os.path.join(os.getcwd(), base_country + '_db.csv'), index=False)
 ################################################################################################
 
 # Israel and some countries
 # World Daily Situation in Bars for countries since 1m population
-all_countries = daily['Country'].unique()
-# remove Liechtenstein which is without update
-current_date_countries = current_date_countries[current_date_countries['Country'].str.contains('Liechtenstein') != True]
+countries_cases = first_plt
+if countries_cases:
 
-dth = current_date_countries[current_date_countries['Deaths / 1M pop'] > 0.75 * israel_db['NormPopDeaths'].max()]
-dth_countries = dth[dth['Deaths / 1M pop'] < 1.05 * israel_db['NormPopDeaths'].max()]['Country'].unique()
-pop = current_date_countries[current_date_countries.Population > 0.75 * israel_db.Population.max()]
-pop_countries = pop[pop.Population < 1.05 * israel_db.Population.max()]['Country'].unique()
-cnf = current_date_countries[current_date_countries['Confirmed / 1M pop'] > 0.85 * israel_db['NormPopConfirmed'].max()]
-cnf_countries = cnf[cnf['Confirmed / 1M pop'] < 1.15 * israel_db['NormPopConfirmed'].max()]['Country'].unique()
+    all_countries = daily['Country'].unique()
+    # remove Liechtenstein which is without update
+    current_date_countries = current_date_countries[current_date_countries['Country'].str.contains('Liechtenstein') != True]
 
-countries1 = ['Italy', 'Iran', 'Spain', 'France', 'US', 'United Kingdom', 'Russia', 'Brazil']
-             # 'Netherlands', 'Belgium', 'Portugal', 'Norway', 'Iceland', 'Ireland']
-countries2 = ['Taiwan*', 'New Zealand', 'Japan', 'South Korea', 'Singapore', 'Switzerland', 'Turkey']
-             # 'Sweden', 'Denmark', 'Germany', 'Austria']
+    dth = current_date_countries[current_date_countries['Deaths / 1M pop'] > 0.75 * israel_db['NormPopDeaths'].max()]
+    dth_countries = dth[dth['Deaths / 1M pop'] < 1.05 * israel_db['NormPopDeaths'].max()]['Country'].unique()
+    pop = current_date_countries[current_date_countries.Population > 0.75 * israel_db.Population.max()]
+    pop_countries = pop[pop.Population < 1.05 * israel_db.Population.max()]['Country'].unique()
+    cnf = current_date_countries[current_date_countries['Confirmed / 1M pop'] > 0.85 * israel_db['NormPopConfirmed'].max()]
+    cnf_countries = cnf[cnf['Confirmed / 1M pop'] < 1.15 * israel_db['NormPopConfirmed'].max()]['Country'].unique()
 
-ddb = None
-cnfdb = None
-pdb = None
-cdb1 = israel_db
-cdb2 = israel_db
+    countries1 = ['Italy', 'Iran', 'Spain', 'France', 'US', 'United Kingdom', 'Russia', 'Brazil']
+    # 'Netherlands', 'Belgium', 'Portugal', 'Norway', 'Iceland', 'Ireland']
+    countries2 = ['Taiwan*', 'New Zealand', 'Japan', 'South Korea', 'Singapore', 'Switzerland', 'Turkey']
+    # 'Sweden', 'Denmark', 'Germany', 'Austria']
 
-countries1 = [item for item in countries1 if item not in cnf_countries]
-countries1 = [item for item in countries1 if item not in pop_countries]
-countries1 = [item for item in countries1 if item not in dth_countries]
-countries2 = [item for item in countries2 if item not in cnf_countries]
-countries2 = [item for item in countries2 if item not in pop_countries]
-countries2 = [item for item in countries2 if item not in dth_countries]
+    ddb = None
+    cnfdb = None
+    pdb = None
+    cdb1 = israel_db
+    cdb2 = israel_db
 
-cnf_countries = [item for item in cnf_countries if item not in pop_countries]
-cnf_countries.append(israel_db.Country.values[0])
-for country in dth_countries:
-    curr = country_analysis(clean_db, world_population, country=country, state=None)
-    ddb = pd.concat([ddb, curr], axis=0, sort=False, ignore_index=True)
-for country in cnf_countries:
-    curr = country_analysis(clean_db, world_population, country=country, state=None)
-    cnfdb = pd.concat([cnfdb, curr], axis=0, sort=False, ignore_index=True)
-for country in pop_countries:
-    curr = country_analysis(clean_db, world_population, country=country, state=None)
-    pdb = pd.concat([pdb, curr], axis=0, sort=False, ignore_index=True)
-for country in countries1:
-    curr = country_analysis(clean_db, world_population, country=country, state=None)
-    cdb1 = pd.concat([cdb1, curr], axis=0, sort=False, ignore_index=True)
-for country in countries2:
-    curr = country_analysis(clean_db, world_population, country=country, state=None)
-    cdb2 = pd.concat([cdb2, curr], axis=0, sort=False, ignore_index=True)
+    countries1 = [item for item in countries1 if item not in cnf_countries]
+    countries1 = [item for item in countries1 if item not in pop_countries]
+    countries1 = [item for item in countries1 if item not in dth_countries]
+    countries2 = [item for item in countries2 if item not in cnf_countries]
+    countries2 = [item for item in countries2 if item not in pop_countries]
+    countries2 = [item for item in countries2 if item not in dth_countries]
 
-create_plt = first_plt
-# Countries Cases Plot
-if create_plt:
-    # Days
-    threshDays = [1, 1]
-    # Value ( Default)
-    threshValues = [1, 1]
-    for cnt in range(2):
-        inputs_kind = cnt
-        # Countries Cases Plot from threshould = Number_of_Input
-        if inputs_kind:
-            inputs = ['Confirmed', 'Deaths']
-        else:
-            inputs = ['Active', 'Recovered']
-        prefixes = ['NormPop', 'New', 'NormConfirm']
-        factors = [1, 1, 1]
-        add_growth_rate = [False, False, False]
-        logs = [False, False, False]
-        for cprx in range(len(prefixes)):
-            cases = inputs
-            prefix = prefixes[cprx]
-            factor = factors[cprx]
-            add_growth_rates = add_growth_rate[cprx]
-            log = logs[cprx]
-            if cprx == 2:
-                threshValues = [0, 0]
-                if inputs_kind:
-                    cases = ['Active', 'Deaths']
-            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), current_date.strftime('%d%m%y') + '_Days_since_the_' + str(threshDays[0])
-                                                + 'th_from_' + str(threshValues[0]) + 'th_' + prefix + '_for_'
-                                                + inputs[1] + '_Cases_For_Various_Countries.html'), 'a') as f:
-                fsc1 = case_thresh_plot(cdb1, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor,
-                                        fname='Countries vs Israel', log=log, threshValues=threshValues,
-                                        add_growth_rates=add_growth_rates)
-                fsc2 = case_thresh_plot(cdb2, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor,
-                                        fname='Others Countries vs Israel', log=log,  threshValues=threshValues,
-                                        add_growth_rates=add_growth_rates)
-                fsc3 = case_thresh_plot(cnfdb, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor,
-                                        fname='Countries with the -15%:15% Confirmed Case Values as in Israel',
-                                        threshValues=threshValues, add_growth_rates=add_growth_rates)
-                fsc4 = case_thresh_plot(ddb, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor, log=log,
-                                        fname='Countries with the -25%:5% Deaths Case Values as in Israel',
-                                        threshValues=threshValues, add_growth_rates=add_growth_rates)
-                fsc5 = case_thresh_plot(pdb, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor, log=log,
-                                        fname='Countries with the -25%:5% Population as in Israel',
-                                        threshValues=threshValues, add_growth_rates=add_growth_rates)
-                f.write(fsc5.to_html(full_html=False, include_plotlyjs='cdn'))
-                f.write(fsc4.to_html(full_html=False, include_plotlyjs='cdn'))
-                f.write(fsc3.to_html(full_html=False, include_plotlyjs='cdn'))
-                f.write(fsc2.to_html(full_html=False, include_plotlyjs='cdn'))
-                f.write(fsc1.to_html(full_html=False, include_plotlyjs='cdn'))
+    cnf_countries = [item for item in cnf_countries if item not in pop_countries]
+    cnf_countries.append(israel_db.Country.values[0])
+    for country in dth_countries:
+        curr = country_analysis(clean_db, world_population, country=country, state=None)
+        ddb = pd.concat([ddb, curr], axis=0, sort=False, ignore_index=True)
+    for country in cnf_countries:
+        curr = country_analysis(clean_db, world_population, country=country, state=None)
+        cnfdb = pd.concat([cnfdb, curr], axis=0, sort=False, ignore_index=True)
+    for country in pop_countries:
+        curr = country_analysis(clean_db, world_population, country=country, state=None)
+        pdb = pd.concat([pdb, curr], axis=0, sort=False, ignore_index=True)
+    for country in countries1:
+        curr = country_analysis(clean_db, world_population, country=country, state=None)
+        cdb1 = pd.concat([cdb1, curr], axis=0, sort=False, ignore_index=True)
+    for country in countries2:
+        curr = country_analysis(clean_db, world_population, country=country, state=None)
+        cdb2 = pd.concat([cdb2, curr], axis=0, sort=False, ignore_index=True)
+
+    create_plt = first_plt
+    # Countries Cases Plot
+    if create_plt:
+        # Days
+        threshDays = [1, 1]
+        # Value ( Default)
+        threshValues = [1, 1]
+        for cnt in range(2):
+            inputs_kind = cnt
+            # Countries Cases Plot from threshold = Number_of_Input
+            if inputs_kind:
+                inputs = ['Confirmed', 'Deaths']
+            else:
+                inputs = ['Active', 'Recovered']
+            prefixes = ['NormPop', 'New', 'NormConfirm']
+            factors = [1, 1, 1]
+            add_growth_rate = [False, False, False]
+            logs = [False, False, False]
+            for cprx in range(len(prefixes)):
+                cases = inputs
+                prefix = prefixes[cprx]
+                factor = factors[cprx]
+                add_growth_rates = add_growth_rate[cprx]
+                log = logs[cprx]
+                if cprx == 2:
+                    threshValues = [0, 0]
+                    if inputs_kind:
+                        cases = ['Active', 'Deaths']
+                with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), current_date.strftime('%d%m%y')
+                          + '_Days_since_the_' + str(threshDays[0]) + 'th_from_' + str(threshValues[0]) + 'th_' + prefix
+                          + '_for_' + inputs[1] + '_Cases_For_Various_Countries.html'), 'a') as f:
+                    fsc1 = case_thresh_plot(cdb1, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor,
+                                            fname='Countries vs Israel', log=log, threshValues=threshValues,
+                                            add_growth_rates=add_growth_rates)
+                    fsc2 = case_thresh_plot(cdb2, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor,
+                                            fname='Others Countries vs Israel', log=log,  threshValues=threshValues,
+                                            add_growth_rates=add_growth_rates)
+                    fsc3 = case_thresh_plot(cnfdb, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor,
+                                            fname='Countries with the -15%:15% Confirmed Case Values as in Israel',
+                                            threshValues=threshValues, add_growth_rates=add_growth_rates)
+                    fsc4 = case_thresh_plot(ddb, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor, log=log,
+                                            fname='Countries with the -25%:5% Deaths Case Values as in Israel',
+                                            threshValues=threshValues, add_growth_rates=add_growth_rates)
+                    fsc5 = case_thresh_plot(pdb, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor, log=log,
+                                            fname='Countries with the -25%:5% Population as in Israel',
+                                            threshValues=threshValues, add_growth_rates=add_growth_rates)
+                    f.write(fsc5.to_html(full_html=False, include_plotlyjs='cdn'))
+                    f.write(fsc4.to_html(full_html=False, include_plotlyjs='cdn'))
+                    f.write(fsc3.to_html(full_html=False, include_plotlyjs='cdn'))
+                    f.write(fsc2.to_html(full_html=False, include_plotlyjs='cdn'))
+                    f.write(fsc1.to_html(full_html=False, include_plotlyjs='cdn'))
 
 ############################################################
 
-choisen_cases = True
+choisen_cases = first_plt
 if choisen_cases:
     cdb = None
     countries = ['Israel', 'Australia']
@@ -270,13 +278,13 @@ if choisen_cases:
     # Value ( Default)
     threshValues = [1, 1]
     # Countries Cases Plot
-    with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), current_date.strftime('%d%m%y') + '_Days_since_the_' + str(threshDays[0])
-                                      + 'th_from_' + str(threshValues[0]) + 'th_' + '_for_'
-                                      + 'All_Cases_For_' + str(len(countries)) + '_Countries.html'), 'a') as f:
+    with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), current_date.strftime('%d%m%y') + '_Days_since_the_'
+              + str(threshDays[0]) + 'th_from_' + str(threshValues[0]) + 'th_' + '_for_' + 'All_Cases_For_'
+              + str(len(countries)) + '_Countries.html'), 'a') as f:
 
         for cnt in range(2):
             inputs_kind = cnt
-            # Countries Cases Plot from threshould = Number_of_Input
+            # Countries Cases Plot from threshold = Number_of_Input
             if inputs_kind:
                 inputs = ['Confirmed', 'Deaths']
             else:
@@ -296,8 +304,8 @@ if choisen_cases:
                     if inputs_kind:
                         cases = ['Active', 'Deaths']
                 fsc = case_thresh_plot(cdb, threshDays=threshDays, inputs=cases, prefix=prefix, factor=factor,
-                                        fname='Countries', log=log, threshValues=threshValues,
-                                        add_growth_rates=add_growth_rates)
+                                       fname='Countries', log=log, threshValues=threshValues,
+                                       add_growth_rates=add_growth_rates)
                 f.write(fsc.to_html(full_html=False, include_plotlyjs='cdn'))
 
 fout.close()

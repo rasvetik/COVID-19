@@ -24,19 +24,19 @@ from Utils import *
 from scipy.signal import argrelextrema
 
 
-# Run following algos for learning and prediction
+# Run following algorithms for learning and prediction
 do_SIR = True
-do_prophet = False
-do_ARIMA = False
-do_LSTM = False
-do_reg = False
+do_prophet = True
+do_ARIMA = True
+do_LSTM = True
+do_reg = True
 
 
 if do_prophet:
     from fbprophet import Prophet
     from fbprophet.plot import plot_plotly, add_changepoints_to_plot
 if do_ARIMA:
-    from statsmodels.tsa.arima_model import ARIMA
+    from statsmodels.tsa.arima.model import ARIMA
     from pandas.plotting import autocorrelation_plot
     from pmdarima import auto_arima
     from sklearn.cluster import KMeans
@@ -54,22 +54,21 @@ if do_reg:
     from sklearn.neural_network import MLPRegressor
 
 
-# seed ###################
+# seed #######################
 seed = 1234
 np.random.seed(seed)
 ##############################
 
 
 class suppress_stdout_stderr(object):
-    '''
-    A context manager for doing a "deep suppression" of stdout and stderr in
-    Python, i.e. will suppress all print, even if the print originates in a
-    compiled C/Fortran sub-function.
+    """
+    A context manager for doing a "deep suppression" of stdout and stderr in Python,
+    i.e. will suppress all print, even if the print originates in a compiled C/Fortran sub-function.
        This will not suppress raised exceptions, since exceptions are printed
     to stderr just before a script exits, and after the context manager has
     exited (at least, I think that is why it lets exceptions through).
+    """
 
-    '''
     def __init__(self):
         # Open a pair of null files
         self.null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
@@ -143,7 +142,7 @@ def extended_data(db, inputs, dates, prefix='Real'):
     return df
 
 
-def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=None, active_ratio=0.11, debug_mode=None):
+def SIR_algo(data, predict_range=720, s_0=None, threshConfirm=1, threshDays=None, active_ratio=0.11, debug_mode=None):
     # interactive site http://www.public.asu.edu/~hnesse/classes/sir.html
     # beta -  parameter controlling how much the disease can be transmitted through exposure.
     # gamma - parameter expressing how much the disease can be recovered in a specific period
@@ -171,7 +170,7 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
         l2 = np.sqrt(np.mean((solution.y[2] - recovered) ** 2))
         l3 = np.sqrt(np.mean((solution.y[3] - death) ** 2))
 
-        return alpha[0] * l1 + np.max([0, 1 - alpha[0] - alpha[1] ]) * l2 + alpha[1] * l3
+        return alpha[0] * l1 + np.max([0, 1 - alpha[0] - alpha[1]]) * l2 + alpha[1] * l3
 
     def predict(dataDate, beta, gamma, delta, active, recovered, death, s_0, i_0, r_0, d_0):
 
@@ -199,10 +198,10 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
 
         return dates, extended_active, extended_recovered, extended_death, prediction
 
-    data = (data.loc[data.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
     if threshDays:
         data = data.loc[:threshDays, :]
     cur_day = data.Date.max().strftime('%d%m%y')
+    data = (data.loc[data.loc[:, 'Confirmed'] > threshConfirm, :]).reset_index()
 
     run_daily = False
 
@@ -254,9 +253,9 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
         r_0 = recovered.values[0]
         d_0 = death.values[0]
         if s_0 is None:
-            s_0 = (confirmed.values[-1] / factor)
+            s_0 = round(confirmed.values[-1] / factor)
         else:
-            s_0 = (s_0 / factor)
+            s_0 = round(s_0 / factor)
 
         if run_daily:
             # daily
@@ -314,7 +313,10 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
                 print(optimal)
                 if optimal.nit < 10 or ((round(1 / optimal.x[1]) < 15 or (1 / optimal.x[1]) > predict_range + 90)
                                         and active_ratio > 0.075) or optimal.fun > 700:
-                    raise Exception('the parameters are not reliable')
+                    if cnt > 1:
+                        continue
+                    else:
+                        raise Exception('the parameters are not reliable')
 
         beta, gamma, delta = optimal.x
         dates, extended_active, extended_recovered, extended_death, prediction = \
@@ -344,7 +346,7 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
         if cnt == 0:
             full_data = df
             out_text = country + ' ' + str(data.Date.max().strftime('%d/%m/%y')) \
-                               + ':  Since the ' + str(threshConfrirm) + ' Confirmed Case.'
+                               + ':  Since the ' + str(threshConfirm) + ' Confirmed Case.'
             if wave > 1:
                 full_data = df[: idx_min_after_max[cnt]]
                 # begin_idx = idx_min_after_max + data['Active'][idx_min_after_max:].values.nonzero()[0][0]
@@ -356,7 +358,7 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
                     os.makedirs(country_folder, exist_ok=True)
         else:
             df_text = country + ' ' + str(data.Date.max().strftime('%d/%m/%y')) \
-                       + ':  Since the ' + str(threshConfrirm) + ' Confirmed Case in wave ' + str(cnt + 1) \
+                       + ':  Since the ' + str(threshConfirm) + ' Confirmed Case in wave ' + str(cnt + 1) \
                        + '.  Days to recovery=' \
                        + str(Dsir) + ' - ' + str(dday) \
                        + '<br>\N{GREEK SMALL LETTER BETA}= ' + str(round(beta, 7)) \
@@ -399,16 +401,21 @@ def SIR_algo(data, predict_range=450, s_0=None, threshConfrirm=1, threshDays=Non
 ##################################################################################################
 
 
-def prophet_modeling_and_predicting(base_db, column_name, predict_range=365, first_n=45, last_n=30, threshConfrirm=1,
+def prophet_modeling_and_predicting(base_db, column_name, predict_range=720, first_n=45, last_n=30, threshConfirm=1,
                                     threshDays=None, logistic=False, debug_mode=None):
     # Prophet Algorithm
     # Implements a procedure for forecasting time series data based on an additive model where non-linear trends are fit
     # with yearly, weekly, and daily seasonality, plus holiday effects. It works best with time series that have strong
     # seasonal effects and several seasons of historical data. Prophet is robust to missing data and shifts in the trend
     # and typically handles outliers well.
-    data = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
+
     if threshDays:
-        data = data.loc[:threshDays, :]
+        data = base_db.loc[:threshDays, :]
+    else:
+        data = base_db
+
+    data = (data.loc[data.loc[:, 'Confirmed'] > threshConfirm, :]).reset_index()
+
     pr_data = data.loc[:, ['Date', column_name]].copy()
     pr_data.columns = ['ds', 'y']
     if logistic:
@@ -450,7 +457,7 @@ def prophet_modeling_and_predicting(base_db, column_name, predict_range=365, fir
 ##################################################################################################
 
 
-def arima_modeling_and_predicting(base_db, column_name, predict_range=450, threshConfrirm=1, threshDays=None,
+def arima_modeling_and_predicting(base_db, column_name, predict_range=720, threshConfirm=1, threshDays=None,
                                   debug_mode=None):
     # https://machinelearningmastery.com/arima-for-time-series-forecasting-with-python/
     # Arima Algo - Autoregressive Integrated Moving Average Model
@@ -462,11 +469,16 @@ def arima_modeling_and_predicting(base_db, column_name, predict_range=450, thres
     #                           observed at previous time points in the series
     # The Akaike information criterion (AIC) is an estimator of the relative quality of statistical models for a given
     # set of data. Lower - better
-    data = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
-    # Factor to boost the calculation if the values are big
-    factor = calc_factor(base_db)
+
     if threshDays:
-        data = data.loc[:threshDays, :]
+        data = base_db.loc[:threshDays, :]
+    else:
+        data = base_db
+
+    data = (data.loc[data.loc[:, 'Confirmed'] > threshConfirm, :]).reset_index()
+    # Factor to boost the calculation if the values are big
+    factor = calc_factor(data)
+
     arima_data = data.loc[:, ['Date', column_name]].copy()
     arima_data.columns = ['Date', 'Count']
     arima_data['Count'] = arima_data['Count'] / factor
@@ -486,23 +498,27 @@ def arima_modeling_and_predicting(base_db, column_name, predict_range=450, thres
         do_print = False
 
     stepwise_fit = auto_arima(arima_data['Count'], d=2, D=2, trace=do_print,  # trace print log
-                              error_action='ignore',  # we don't want to know if an order does not work
-                              suppress_warnings=True,  # we don't want convergence warnings
-                              stepwise=True)  # set to stepwise
+                              error_action='ignore',    # we don't want to know if an order does not work
+                              suppress_warnings=True,   # we don't want convergence warnings
+                              stepwise=True,            # set to stepwise
+                              stationary=True, maxiter=100)
+
     if do_print:
         # To print the summary
         print(stepwise_fit.summary())
         print('Arima order :' + str(stepwise_fit.order))
 
     order = tuple(np.array(stepwise_fit.order).clip(1, 3))
-    model = ARIMA(arima_data['Count'].values, order=order)
+    # We maximize the likelihood function numerically, and we do not consider parameter combinations that would lead to
+    # a non-stationary / non-invertible model (as long as enforce_stationary=True and enforce_invertibility=True)
+    armodel = ARIMA(arima_data['Count'].values, order=order, enforce_stationarity=True, enforce_invertibility=True)
     # Model and prediction
     # if stepwise_fit.order[0] == 0 or stepwise_fit.order[2] == 0:
-    #     model = ARIMA(arima_data['Count'].values, order=(1, 2, 1))
+    #     armodel = ARIMA(arima_data['Count'].values, order=(1, 2, 1))
     # else:
-    #    model = ARIMA(arima_data['Count'].values, order=stepwise_fit.order)
-
-    fit_model = model.fit(trend='c', full_output=True, disp=False)
+    #    armodel = ARIMA(arima_data['Count'].values, order=stepwise_fit.order)
+    with suppress_stdout_stderr():
+        fit_model = armodel.fit()    # trend='c', full_output=True, disp=False)
 
     if do_print:
         print(fit_model.summary())
@@ -514,12 +530,13 @@ def arima_modeling_and_predicting(base_db, column_name, predict_range=450, thres
         residuals = pd.DataFrame(fit_model.resid)
         # if in the residual errors may still be some trend information not captured by the model.
         residuals.plot(title="Residual Error'", ax=ax[1, 0])
-        # the density plot of the residual error values, suggesting the errors are Gaussian, but may not be centered on zero
+        # the density plot of the residual error values, suggesting the errors are Gaussian,
+        # but may not be centered on zero
         residuals.plot(kind='kde', title='Density', ax=ax[1, 1])
 
-    # Forcast for next days (performs a one-step forecast using the model)
-    forcast = fit_model.forecast(steps=period)
-    pred_y = forcast[0].tolist()
+    # Forecast for next days (performs a one-step forecast using the model)
+    forecast = fit_model.forecast(steps=period)
+    pred_y = forecast[0].tolist()
 
     # Predictions of y values based on "model", namely fitted values
     # try:
@@ -546,12 +563,16 @@ def arima_modeling_and_predicting(base_db, column_name, predict_range=450, thres
 ###########################################################################################################
 
 
-def LSTM_modeling_and_predicting(base_db, column_name, predict_range=450, threshConfrirm=1,  threshDays=None,
+def LSTM_modeling_and_predicting(base_db, column_name, predict_range=720, threshConfirm=1,  threshDays=None,
                                  debug_mode=None):
 
-    dataset = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
     if threshDays:
-        dataset = dataset.loc[:threshDays, :]
+        dataset = base_db.loc[:threshDays, :]
+    else:
+        dataset = base_db
+
+    dataset = (dataset.loc[dataset.loc[:, 'Confirmed'] > threshConfirm, :]).reset_index()
+
     data = dataset.loc[:, ['Date', column_name]].copy()
     data['Date'] = pd.to_datetime(data['Date'])
     len_data = len(data[column_name].values)
@@ -635,16 +656,16 @@ def LSTM_modeling_and_predicting(base_db, column_name, predict_range=450, thresh
 ######################################################################################################
 
 
-def regression_modeling_and_predicting(base_db, column_name, predict_range=450, threshConfrirm=1, threshDays=None,
+def regression_modeling_and_predicting(base_db, column_name, predict_range=720, threshConfirm=1, threshDays=None,
                                        debug_mode=None):
     # Class MLPRegressor implements a multi-layer perceptron (MLP)
     # that trains using backpropagation with no activation function in the output layer,
     # which can also be seen as using the identity function as activation function.
     # Therefore, it uses the square error as the loss function, and the output is a set of continuous values.
 
-    base_db = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
     if threshDays:
         base_db = base_db.loc[:threshDays, :]
+    base_db = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfirm, :]).reset_index()
     data = base_db.loc[:, ['Date', column_name]].copy()
     data['Date'] = pd.to_datetime(data['Date'])
     len_data = len(data[column_name].values)
@@ -722,8 +743,8 @@ all_countries = np.insert(all_countries, 0, 'Israel')
 
 # Some countries
 some_countries = ['Israel', 'world', 'US', 'Russia', 'Brazil', 'Italy', 'Iran', 'Spain', 'France', 'Belgium',  'Sweden',
-                  'Singapore', 'Switzerland', 'Turkey', 'Denmark', 'Germany', 'Austria', 'Australia', 'Japan', 'South Korea',
-                  'Portugal', 'Norway', 'Qatar', 'Iceland', 'New Zealand', 'Panama', 'Estonia', 'Cyprus']
+                  'Singapore', 'Switzerland', 'Turkey', 'Denmark', 'Germany', 'Austria', 'Australia', 'South Korea',
+                  'Japan', 'Portugal', 'Norway', 'Qatar', 'Iceland', 'New Zealand', 'Panama', 'Estonia', 'Cyprus']
 
 do_all = False
 some = False
@@ -737,7 +758,7 @@ else:
 # are not relevant due to absent some data
 # Caution: In 'United Kingdom', 'Netherlands' the recovered data are absent
 # remove_countries = ['United Kingdom', 'Netherlands', 'Ireland']
-remove_countries = []
+remove_countries = ['Summer Olympics 2020']
 countries = [item for item in countries if item not in remove_countries]
 
 # If prediction is not good the figure is shows (if flag activate) and not saved
@@ -765,20 +786,28 @@ for base_country in countries:
 
         # Sort by Date
         daily = clean_db.sort_values(['Date', 'Country', 'State'])
-        base_db = country_analysis(clean_db, world_population, country=base_country, state='', plt=True,
-                                   fromFirstConfirm=True, num_days_for_rate=60)
-        if base_country[-1] == '*':
-            base_country = base_country[:-1]
-            base_db['Country'] = base_country
-        base_db.to_csv(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), base_country + '_db.csv'), index=False)
+        try:
+            base_db = country_analysis(clean_db, world_population, country=base_country, state='', plt=True,
+                                       fromFirstConfirm=True, num_days_for_rate=60)
+            if base_country[-1] == '*':
+                base_country = base_country[:-1]
+                base_db['Country'] = base_country
+            base_db.to_csv(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), base_country + '_db.csv'), index=False)
+        except:
+            print('No luck loading data of '+base_country)
+            continue
 
+    len_db = base_db.shape[0]
     # range in days from threshold's Confirmed Cases
-    predict_range = 450
+    predict_range = len_db
+    valid_idx = -1
     # threshold according to number of days. how many days use in estimation. default - all days till current day
     threshDays = None
-
+    if base_db.Recovered.max() == -base_db.NewRecovered.min():
+        # Cut the data by last valid recovered value
+        threshDays = base_db[base_db.Recovered == base_db.Recovered.max()].index.values[-1] - 1
+        valid_idx = threshDays - 1
     # SIR
-    # do_SIR = True
     # threshold on Confirmed value (from which value to begin estimation)
     # For SIR algo: Estimated percent of suspected population in %, for example 0.055%
     suspected_prcnt_pop = 0.05 / 100
@@ -791,20 +820,21 @@ for base_country in countries:
             day = data_db.Date.max()
             # whether the number of suspected is estimated on % of population or according to current Confirmed value
             do_on_pop = False
-            active_ratio = data_db.Active.values[-1] / data_db.Confirmed.values[-1]
-            threshConfrirm = int(base_db.Confirmed.values[-1] * active_ratio * 0.01)
+            active_ratio = data_db.Active.values[valid_idx] / data_db.Confirmed.values[valid_idx]
+            # threshConfirm = int(base_db.Confirmed.values[valid_idx] * active_ratio * 0.01)
+            threshConfirm = 1
             # if active_ratio > 0.7:
             #     do_on_pop = True
             if do_on_pop:
                 # there is estimation of 0.05% of population will be as suspected
                 s_0 = np.max([data_db.Confirmed.values[-1], (data_db.Population.values[0]*suspected_prcnt_pop).astype(int)])
-                print([threshConfrirm, data_db.Confirmed.values[-1],
+                print([threshConfirm, data_db.Confirmed.values[-1],
                        (data_db.Population.values[0]*suspected_prcnt_pop).astype(int), round(active_ratio, 2)])
             else:
                 s_0 = None
-                print([threshConfrirm, data_db.Confirmed.values[-1], round(active_ratio, 2)])
-            data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0, threshConfrirm=threshConfrirm,
-                                        active_ratio=active_ratio)
+                print([threshConfirm, data_db.Confirmed.values[-1], round(active_ratio, 2)])
+            data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0, threshConfirm=threshConfirm,
+                                        threshDays=threshDays, active_ratio=active_ratio)
             sir_annot = dict(xref='paper', yref='paper', x=0.35, y=0.93, align='left', font=dict(size=12), text=text)
             data['Date'] = data.index
             data.Date = pd.to_datetime(data.Date)
@@ -817,9 +847,9 @@ for base_country in countries:
             print(e)
             try:
                 print('Last Try')
-                threshConfrirm = 1
-                data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0,
-                                            threshConfrirm=threshConfrirm, active_ratio=active_ratio)
+                threshConfirm = 1
+                data, text, Dsir = SIR_algo(data_db, predict_range=predict_range, s_0=s_0, threshConfirm=threshConfirm,
+                                            threshDays=threshDays, active_ratio=active_ratio)
                 sir_annot = dict(xref='paper', yref='paper', x=0.25, y=0.95, align='left', font=dict(size=14),
                                  text=text)
                 data['Date'] = data.index
@@ -843,28 +873,31 @@ for base_country in countries:
     # Prophet Algorithm
     # do_prophet = False
     # threshold on Confirmed value (from which value to begin estimation)
-    threshConfrirm = 1
+    threshConfirm = 1
     if do_prophet:
         print('Prediction with Prophet Algorithm')
         try:
             # For Confirmed Cases
             cnfrm, forecast_cnfrm, fig_cnfrm = prophet_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range,
-                                                first_n=predict_range, last_n=predict_range, threshConfrirm=threshConfrirm)
+                                                                               first_n=predict_range, last_n=predict_range,
+                                                                               threshConfirm=threshConfirm, threshDays=threshDays)
             # For Recover Cases
             # This prediction is truly based on the dataset depend on the current situation.
             # In future if we able to get vaccine there will be gradual changes in recovery
             rec, forecast_rec, fig_rec = prophet_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range,
-                                                first_n=predict_range, last_n=predict_range, threshConfrirm=threshConfrirm)
+                                                                         first_n=predict_range, last_n=predict_range,
+                                                                         threshConfirm=threshConfirm, threshDays=threshDays)
             # For Death
             dth, forecast_dth, fig_dth = prophet_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range,
-                                                first_n=predict_range, last_n=predict_range, threshConfrirm=threshConfrirm)
+                                                                         first_n=predict_range, last_n=predict_range,
+                                                                         threshConfirm=threshConfirm, threshDays=threshDays)
 
             # For Active - not usable because of linear or logistic nature of predictions only
-            # act, forecast_act, fig_act = prophet_modeling_and_predicting(base_db, 'Active', predict_range=predict_range,
-            #                                    first_n=predict_range, last_n=predict_range, threshConfrirm=threshConfrirm)
+            # act, forecast_act, fig_act = prophet_modeling_and_predicting(base_db, 'Active',
+            # predict_range=predict_range, first_n=predict_range, last_n=predict_range, threshConfirm=threshConfirm)
 
             # How future looks like!!
-            data = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
+            data = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfirm, :]).reset_index()
             len_data = data.shape[0]
             data['Date'] = pd.to_datetime(data['Date'])
             day = data.Date.max()
@@ -902,12 +935,14 @@ for base_country in countries:
             print('Days to recovery ' + str(Dprop.days) + ' - ' + prop_df['Date'].max().strftime('%d/%m/%y'))
 
             pred_ann = dict(xref='paper', yref='paper', x=0.2, y=0.95, align='left', font=dict(size=14),
-                            text='Since the ' + str(threshConfrirm) + ' Confirmed Case'
+                            text='Since the ' + str(threshConfirm) + ' Confirmed Case'
                                  + '<br>Low Bound Predicted Recovery after confirmation is ' + str(round(pr_pps*100, 1))
                                  + '%<br>Low Bound Predicted Death after confirmation is ' + str(round(pd_pps*100, 1)) + '%'
-                                 + '<br>Days to recovery ' + str(Dprop.days) + ' - ' + prop_df['Date'].max().strftime('%d/%m/%y'))
+                                 + '<br>Days to recovery ' + str(Dprop.days) + ' - '
+                                 + prop_df['Date'].max().strftime('%d/%m/%y'))
 
-            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
+            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_'
+                      + base_country + '_Predictions .html'), 'a') as f:
                 fsc2 = line_country_plot(prop_df,
                                          fname=' - ' + base_country + ' - Prediction with Prophet Algorithm ',
                                          prefixes=['', 'Predicted', 'LowPredicted', 'HighPredicted'],
@@ -923,31 +958,31 @@ for base_country in countries:
             print(e)
             print('Not executed Prediction with Prophet Algorithm')
 
-
     ###############################################################################################################
     # Arima Algo - Autoregressive Integrated Moving Average Model
     # do_ARIMA = False
-    threshConfrirm = int(base_db.Confirmed.values[-1] * 0.01)
+    # threshConfirm = int(base_db.Confirmed.values[-1] * 0.01)
+    threshConfirm = 1
     if do_ARIMA:
         print('Prediction with ARIMA Algorithm')
         try:
             # For Confirmed Cases
             acnfrm, mse_cnfrm = arima_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range,
-                                                              threshConfrirm=threshConfrirm)
+                                                              threshConfirm=threshConfirm, threshDays=threshDays)
             # For Recover Cases
             # This prediction is truly based on the dataset depend on the current situation.
             # In future if we able to get vaccine there will be gradual changes in recovery
             arec, mse_rec = arima_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range,
-                                                          threshConfrirm=threshConfrirm)
+                                                          threshConfirm=threshConfirm, threshDays=threshDays)
             # For Death
             adth, mse_dth = arima_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range,
-                                                          threshConfrirm=threshConfrirm)
+                                                          threshConfirm=threshConfirm, threshDays=threshDays)
             # For Active
             aact, mse_act = arima_modeling_and_predicting(base_db, 'Active', predict_range=predict_range,
-                                                          threshConfrirm=threshConfrirm)
+                                                          threshConfirm=threshConfirm, threshDays=threshDays)
 
             # How future looks like!!
-            data = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
+            data = (base_db.loc[base_db.loc[:, 'Confirmed'] > threshConfirm, :]).reset_index()
             len_data = data.shape[0]
             data['Date'] = pd.to_datetime(data['Date'])
             day = data.Date.max()
@@ -978,16 +1013,19 @@ for base_country in countries:
             print('Days to recovery=' + str(Daprop.days) + ' - ' + aprop_df['Date'].max().strftime('%d/%m/%y'))
 
             pred_ann = dict(xref='paper', yref='paper', x=0.2, y=0.9, align='left', font=dict(size=14),
-                            text='Since the ' + str(threshConfrirm) + ' Confirmed Case'
+                            text='Since the ' + str(threshConfirm) + ' Confirmed Case'
                                  + '<br>rmse(Cnfrm)=' + str(int(mse_cnfrm)) + ', rmse(Recv)=' + str(int(mse_rec))
                                  + ', rmse(Dth)=' + str(int(mse_dth)) + ', rmse(Actv)=' + str(int(mse_act))
                                  + '<br>Predicted Recovery after confirmation is ' + str(round(apr_pps*100, 1))
                                  + '%<br>Predicted Death after confirmation is ' + str(round(apd_pps*100, 1))
-                                 + '<br>Days to recovery ' + str(Daprop.days) + ' - ' + aprop_df['Date'].max().strftime('%d/%m/%y'))
+                                 + '<br>Days to recovery ' + str(Daprop.days) + ' - '
+                                 + aprop_df['Date'].max().strftime('%d/%m/%y'))
 
-            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
+            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_'
+                      + base_country + '_Predictions .html'), 'a') as f:
                 fsc3 = scatter_country_plot(aprop_df, fname=' - ' + base_country + ' - Prediction with ARIMA Algorithm ',
-                                            inputs=aprop_df.keys()[:-1], annotations=pred_ann, day=day.strftime('%d/%m/%y'))
+                                            inputs=aprop_df.keys()[:-1], annotations=pred_ann,
+                                            day=day.strftime('%d/%m/%y'))
                 if apr_pps + apd_pps < 0.75:
                     # If prediction is not good the figure is shows only and not saved
                     if show_not_good_prediction:
@@ -1003,18 +1041,23 @@ for base_country in countries:
     # LSTM - take a time to solve
     # do_LSTM = False
     # threshold on Confirmed value (from which value to begin estimation)
-    threshConfrirm = int(base_db.Confirmed.values[-1] * 0.001)
+    # threshConfirm = int(base_db.Confirmed.values[-1] * 0.001)
+    threshConfirm = 1
     if do_LSTM:
         print('Prediction with LSTM Algorithm')
         try:
-            lstm_active = LSTM_modeling_and_predicting(base_db, 'Active', predict_range=predict_range, threshConfrirm=threshConfrirm)
-            lstm_cnfrm = LSTM_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range, threshConfrirm=threshConfrirm)
-            lstm_rec = LSTM_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range, threshConfrirm=threshConfrirm)
-            lstm_dth = LSTM_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range, threshConfrirm=threshConfrirm)
+            lstm_active = LSTM_modeling_and_predicting(base_db, 'Active', predict_range=predict_range,
+                                                       threshConfirm=threshConfirm, threshDays=threshDays)
+            lstm_cnfrm = LSTM_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range,
+                                                      threshConfirm=threshConfirm, threshDays=threshDays)
+            lstm_rec = LSTM_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range,
+                                                    threshConfirm=threshConfirm, threshDays=threshDays)
+            lstm_dth = LSTM_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range,
+                                                    threshConfirm=threshConfirm, threshDays=threshDays)
 
             # How future looks like!!
             data = base_db.copy()
-            data = (data.loc[data.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
+            data = (data.loc[data.loc[:, 'Confirmed'] > threshConfirm, :]).reset_index()
             len_data = data.shape[0]
             data['Date'] = pd.to_datetime(data['Date'])
             day = data.Date.max()
@@ -1056,16 +1099,18 @@ for base_country in countries:
             print('Days to recovery ' + str(Dlstm.days) + ' - ' + lstm_prop_df['Date'].max().strftime('%d/%m/%y'))
 
             pred_ann = dict(xref='paper', yref='paper', x=0.2, y=0.9, align='left', font=dict(size=14),
-                            text='Since the ' + str(threshConfrirm) + ' Confirmed Case'
+                            text='Since the ' + str(threshConfirm) + ' Confirmed Case'
                                  + '<br>Predicted Recovery after confirmation is ' + str(round(lpr_pps*100, 1))
                                  + '%<br>Predicted Death after confirmation is ' + str(round(lpd_pps*100, 1))
                                  + '<br>Days to recovery ' + str(Dlstm.days) + ' - '
                                  + lstm_prop_df['Date'].max().strftime('%d/%m/%y'))
 
-            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
+            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_'
+                      + base_country + '_Predictions .html'), 'a') as f:
                 fsc4 = scatter_country_plot(lstm_prop_df,
                                             fname=' - ' + base_country + ' - Prediction with LSTM Algorithm ',
-                                            inputs=lstm_prop_df.keys()[:-1], annotations=pred_ann, day=day.strftime('%d/%m/%y'))
+                                            inputs=lstm_prop_df.keys()[:-1], annotations=pred_ann,
+                                            day=day.strftime('%d/%m/%y'))
                 if lpr_pps + lpd_pps < 0.55:
                     # If prediction is not good the figure is shows only and not saved
                     if show_not_good_prediction:
@@ -1080,18 +1125,22 @@ for base_country in countries:
     ################################################################################################
     # Regression
     # do_reg = False
-    threshConfrirm = 1
+    threshConfirm = 1
     if do_reg:
         print('Prediction with Multi-layer Perceptron Regressor Algorithm')
         try:
-            reg_cnfrm = regression_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range, threshConfrirm=threshConfrirm)
-            reg_rec = regression_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range, threshConfrirm=threshConfrirm)
-            reg_dth = regression_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range, threshConfrirm=threshConfrirm)
-            reg_act = regression_modeling_and_predicting(base_db, 'Active', predict_range=predict_range, threshConfrirm=threshConfrirm)
+            reg_cnfrm = regression_modeling_and_predicting(base_db, 'Confirmed', predict_range=predict_range,
+                                                           threshConfirm=threshConfirm, threshDays=threshDays)
+            reg_rec = regression_modeling_and_predicting(base_db, 'Recovered', predict_range=predict_range,
+                                                         threshConfirm=threshConfirm, threshDays=threshDays)
+            reg_dth = regression_modeling_and_predicting(base_db, 'Deaths', predict_range=predict_range,
+                                                         threshConfirm=threshConfirm, threshDays=threshDays)
+            reg_act = regression_modeling_and_predicting(base_db, 'Active', predict_range=predict_range,
+                                                         threshConfirm=threshConfirm, threshDays=threshDays)
 
             # How future looks like!!
             data = base_db.copy()
-            data = (data.loc[data.loc[:, 'Confirmed'] > threshConfrirm, :]).reset_index()
+            data = (data.loc[data.loc[:, 'Confirmed'] > threshConfirm, :]).reset_index()
             data['Date'] = pd.to_datetime(data['Date'])
             dates = extend_index(data.Date, predict_range)
             inputs = ['Confirmed', 'Deaths', 'Recovered', 'Active']
@@ -1132,16 +1181,18 @@ for base_country in countries:
             print('Days to recovery ' + str(Dreg.days) + ' - ' + reg_prop_df['Date'].max().strftime('%d/%m/%y'))
 
             pred_ann = dict(xref='paper', yref='paper', x=0.2, y=0.9, align='left', font=dict(size=14),
-                            text='Since the ' + str(threshConfrirm) + ' Confirmed Case'
+                            text='Since the ' + str(threshConfirm) + ' Confirmed Case'
                                  + '<br>Predicted Recovery after confirmation is ' + str(round(rpr_pps*100, 1))
                                  + '%<br>Predicted Death after confirmation is ' + str(round(rpd_pps*100, 1))
                                  + '<br>Days to recovery ' + str(Dreg.days) + ' - '
                                  + reg_prop_df['Date'].max().strftime('%d/%m/%y'))
 
-            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_' + base_country + '_Predictions .html'), 'a') as f:
-                fsc5 = scatter_country_plot(reg_prop_df,
-                                            fname=' - ' + base_country + ' - Prediction with Multi-layer Perceptron Regressor Algorithm ',
-                                            inputs=reg_prop_df.keys()[:-1], annotations=pred_ann, day=day.strftime('%d/%m/%y'))
+            with open(os.path.join(os.getcwd(), time.strftime("%d%m%Y"), day.strftime('%d%m%y') + '_' + base_country
+                      + '_Predictions .html'), 'a') as f:
+                fsc5 = scatter_country_plot(reg_prop_df, fname=' - ' + base_country
+                                            + ' - Prediction with Multi-layer Perceptron Regressor Algorithm ',
+                                            inputs=reg_prop_df.keys()[:-1], annotations=pred_ann,
+                                            day=day.strftime('%d/%m/%y'))
                 if rpr_pps + rpd_pps < 0.75:
                     # If prediction is not good the figure is shows only and not saved
                     if show_not_good_prediction:
@@ -1154,4 +1205,3 @@ for base_country in countries:
             print('Not executed Prediction with Multi-layer Perceptron Regressor Algorithm')
 
     plt.close('all')
-

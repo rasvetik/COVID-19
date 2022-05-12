@@ -23,7 +23,15 @@ import os
 import time
 import matplotlib.dates as mdates
 
-plt.style.use('dark_background')
+# plt.style.use('dark_background')
+
+
+# Smooth Vector with Mean By N
+def smooth_vector(v, n=4):
+    v1 = v.copy()
+    for i in range(n, len(v1) - (n - 1)):
+        v1[i] = v[i - (n - 1):i + n].sum() / (n + (n - 1))
+    return v1
 
 
 # Write Log file
@@ -124,8 +132,13 @@ def growth_func(input_data, inputs, numDays=1, name='Growth', normalise=True, pr
 # add the population and age columns for the given data
 def add_pop_age_data(input_data, world_population):
     world_pop = None
-    input_data.loc[:, 'Population'] = np.nan
-    input_data.loc[:, 'Age'] = np.nan
+    try:
+        input_data.loc[:, 'Population'] = np.nan
+        input_data.loc[:, 'Age'] = np.nan
+    except:
+        input_data['Population'] = np.nan
+        input_data['Age'] = np.nan
+
     for val in input_data.Country.unique():
         curr = world_population[world_population['Country'] == val]
         cntries = input_data.Country == val
